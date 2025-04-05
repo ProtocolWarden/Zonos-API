@@ -1,16 +1,22 @@
 FROM pytorch/pytorch:2.6.0-cuda12.4-cudnn9-devel
-RUN pip install uv
+
+WORKDIR /app
 
 RUN apt update && \
     apt install -y \
     espeak-ng \
     ffmpeg \
     libsndfile1 \
+    curl \
     && rm -rf /var/lib/apt/lists/*
 
-WORKDIR /app
+COPY pyproject.toml ./
+COPY zonos ./zonos
+
+RUN pip install uv
+RUN uv pip install --system -e . && \
+    uv pip install --system -e .[compile]
+
 COPY . ./
 
-RUN uv pip install --system -e . && \
-    uv pip install --system -e .[compile] && \
-    uv pip install --system pydub soundfile
+CMD ["python3", "api.py"]
