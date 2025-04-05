@@ -13,8 +13,8 @@ RUN apt update && \
 COPY pyproject.toml ./
 COPY zonos ./zonos
 
-RUN pip install uv
-RUN uv pip install --system -e . && \
+RUN pip install uv && \
+    uv pip install --system -e . && \
     uv pip install --system -e .[compile]
 
 COPY . ./
