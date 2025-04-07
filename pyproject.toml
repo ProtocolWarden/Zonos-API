@@ -24,6 +24,7 @@ dependencies = [
     "fastapi>=0.110.0,<1.0.0",
     "uvicorn[standard]>=0.27.1",
     "pydub>=0.25.1",
+    "accelerate>=1.6.0",
 ]
 
 # For hybrid models, mamba-ssm is required.
