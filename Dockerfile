@@ -19,4 +19,4 @@ RUN pip install uv && \
 
 COPY . ./
 
-CMD ["python3", "api.py"]
+CMD ["python3", "main_zonos_tts_api.py"]
