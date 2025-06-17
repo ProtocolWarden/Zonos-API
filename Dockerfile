@@ -5,7 +5,7 @@
 # ========================================================
 # Stage 1 — Base with System and Python Dependencies
 # ========================================================
-FROM pytorch/pytorch:2.5.2-cuda12.4-cudnn9-devel AS base
+FROM pytorch/pytorch:2.6.0-cuda12.4-cudnn9-devel AS base
 
 # Non-Interactive Mode
 ENV DEBIAN_FRONTEND=noninteractive
