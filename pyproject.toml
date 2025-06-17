@@ -6,8 +6,8 @@ readme = "README.md"
 requires-python = ">=3.11,<3.12"
 
 dependencies = [
-    "torch==2.6.0",
-    "torchaudio==2.6.0",
+    "torch==2.5.2",
+    "torchaudio==2.5.2",
     "setuptools==69.5.1",
     "packaging==24.0",
     "inflect==7.5.0",
