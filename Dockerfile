@@ -26,6 +26,7 @@ RUN --mount=type=cache,target=/var/cache/apt \
         ffmpeg \
         libsndfile1 \
         curl \
+        git \
     && rm -rf /var/lib/apt/lists/*
 
 # ========================================================
