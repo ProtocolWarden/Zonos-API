@@ -12,11 +12,13 @@ LOG_LEVEL = os.environ.get("LOG_LEVEL", "DEBUG")
 
 LOG_DIR = os.environ.get(
     "LOG_DIR",
-    str(Path(
-        BASE_DIR,
-        "deployment",
-        "log",
-    )),
+    str(
+        Path(
+            BASE_DIR,
+            "logs",
+            "local",
+        )
+    ),
 )
 
 LOGGING_DEBUG = os.environ.get("LOGGING_DEBUG", "True").lower() in ("true", "1", "yes")
