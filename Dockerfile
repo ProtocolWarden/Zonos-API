@@ -3,7 +3,7 @@
 # ========================================================
 
 # ========================================================
-# Stage 1 — Base with System and Python Dependencies
+# Stage 1 — Base Layer with System and Python Deps
 # ========================================================
 FROM pytorch/pytorch:2.6.0-cuda12.4-cudnn9-devel AS base
 
@@ -17,9 +17,9 @@ LABEL built-by="Ctrl+C Ctrl+V DevOps - Thanks Chat" \
 WORKDIR /app
 
 # ========================================================
-# Install System Dependencies with Build Cache
+# System Dependencies
 # ========================================================
-RUN --mount=type=cache,target=/var/cache/apt \
+RUN --mount=type=cache,target=/var/cache/apt,id=apt-cache-zonos \
     apt update && \
     apt install -y \
         espeak-ng \
@@ -30,12 +30,18 @@ RUN --mount=type=cache,target=/var/cache/apt \
     && rm -rf /var/lib/apt/lists/*
 
 # ========================================================
+# Python Packaging Tools and UV Installer
+# ========================================================
+RUN --mount=type=cache,target=/root/.cache/pip,id=pip-cache-setup-zonos \
+    pip install --upgrade pip setuptools wheel && \
+    pip install uv==0.7.9
+
+# ========================================================
 # Install Python Dependencies with uv + Editable Install
 # ========================================================
 COPY pyproject.toml ./
 COPY zonos ./zonos
-
-RUN pip install uv==0.7.9 && \
+RUN --mount=type=cache,target=/root/.cache/pip,id=pip-cache-zonos \
     uv pip install --system -e . && \
     uv pip install --system -e .[compile]
 
