@@ -25,7 +25,7 @@ from typing import Dict, Optional, List, Union
 
 from fastapi import FastAPI, File, UploadFile, HTTPException, Form
 from fastapi.responses import StreamingResponse
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, conlist, confloat
 
 from zonos.model import Zonos
 from zonos.conditioning import make_cond_dict, supported_language_codes
@@ -128,6 +128,12 @@ class SpeechRequest(BaseModel):
     top_k: Optional[int] = Field(None, ge=1)
     top_p: Optional[float] = Field(None, ge=0.0, le=1.0)
     min_p: Optional[float] = Field(0.15, ge=0.0, le=1.0)
+    pitch_std: Optional[float] = Field(None, ge=0.0, le=400.0)
+    speaking_rate: Optional[float] = Field(None, ge=0.0, le=40.0)
+    fmax: Optional[float] = Field(None, ge=0.0, le=24000.0)
+    vqscore_8: Optional[conlist(confloat(ge=0.5, le=0.8), min_length=8, max_length=8)] = None
+    dnsmos_ovrl: Optional[float] = Field(None, ge=1.0, le=5.0)
+    speaker_noised: Optional[bool] = None
 
 class VoiceResponse(BaseModel):
     voice_id: str
@@ -164,15 +170,27 @@ async def create_speech(request: SpeechRequest):
         if request.voice and speaker_embedding is None:
             raise HTTPException(status_code=404, detail=f"Voice '{request.voice}' not found.")
 
-        cond_dict = make_cond_dict(
-            text=request.input,
-            language=request.language,
-            speaker=speaker_embedding,
-            emotion=emotion_tensor,
-            speaking_rate=speaking_rate,
-            device="cuda",
-            unconditional_keys=[] if request.emotion else ["emotion"],
-        )
+        cond_kwargs = {
+            "text": request.input,
+            "language": request.language,
+            "speaker": speaker_embedding,
+            "emotion": emotion_tensor,
+            "speaking_rate": request.speaking_rate if request.speaking_rate is not None else speaking_rate,
+            "device": "cuda",
+            "unconditional_keys": [] if request.emotion else ["emotion"],
+        }
+        if request.pitch_std is not None:
+            cond_kwargs["pitch_std"] = request.pitch_std
+        if request.fmax is not None:
+            cond_kwargs["fmax"] = request.fmax
+        if request.vqscore_8 is not None:
+            cond_kwargs["vqscore_8"] = request.vqscore_8
+        if request.dnsmos_ovrl is not None:
+            cond_kwargs["dnsmos_ovrl"] = request.dnsmos_ovrl
+        if request.speaker_noised is not None:
+            cond_kwargs["speaker_noised"] = request.speaker_noised
+
+        cond_dict = make_cond_dict(**cond_kwargs)
 
         conditioning = model.prepare_conditioning(cond_dict)
 

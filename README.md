@@ -128,6 +128,10 @@ curl -X POST "http://localhost:8000/v1/audio/speech" \
     "emotion": {
       "happiness": 1.0
     },
+    "pitch_std": 50.0,
+    "speaking_rate": 20.0,
+    "fmax": 22050,
+    "vqscore_8": [0.78, 0.78, 0.78, 0.78, 0.78, 0.78, 0.78, 0.78],
     "response_format": "mp3"
   }' \
   --output speech.mp3
@@ -172,6 +176,23 @@ response = requests.post(
 with open("output.mp3", "wb") as f:
     f.write(response.content)
 ```
+
+### Advanced Conditioning Parameters
+
+The `/v1/audio/speech` endpoint exposes additional optional fields that let you
+fine‑tune prosody and quality:
+
+- `pitch_std` (0–400) – controls pitch variation.
+- `speaking_rate` (0–40) – phonemes per second; overrides `speed`.
+- `fmax` (0–24000) – max frequency of the generated audio.
+- `vqscore_8` (8 floats 0.5–0.8) – target quality for each eighth of the
+  audio (hybrid model only).
+- `dnsmos_ovrl` (1–5) – MOS‑based quality metric (hybrid model only).
+- `speaker_noised` (bool) – whether to denoise the speaker embedding.
+
+These parameters default to sensible values. Override only the ones you need.
+For example, higher `pitch_std` and `speaking_rate` values will produce more
+expressive or faster speech, while `vqscore_8` can enforce cleaner audio.
 
 ## Features
 
