@@ -226,7 +226,13 @@ async def create_speech(request: SpeechRequest):
 
     except Exception:
         logger.exception("Error during speech synthesis")
-        raise HTTPException(status_code=500, detail="Failed to generate speech")
+        raise HTTPException(
+            status_code=500,
+            detail={
+                "error": "Failed to generate speech",
+                "traceback": traceback.format_exc(),
+            },
+        )
 
 @app.post("/v1/audio/voice")
 async def create_voice(file: UploadFile = File(...), name: Optional[str] = Form(None)):
@@ -249,7 +255,13 @@ async def create_voice(file: UploadFile = File(...), name: Optional[str] = Form(
 
     except Exception:
         logger.exception("Error during voice creation")
-        raise HTTPException(status_code=500, detail="Failed to process uploaded voice")
+        raise HTTPException(
+            status_code=500,
+            detail={
+                "error": "Failed to process uploaded voice",
+                "traceback": traceback.format_exc(),
+            },
+        )
 
 @app.get("/v1/audio/voices")
 async def list_voices():
