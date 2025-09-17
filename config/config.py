@@ -10,12 +10,15 @@ BASE_DIR = (
 # Options: DEBUG, INFO, WARNING, ERROR, CRITICAL
 LOG_LEVEL = os.environ.get("LOG_LEVEL", "DEBUG")
 
-DEFAULT_LOG_DIR = Path(BASE_DIR, "log", "local")
-
-_env_log_dir = os.environ.get("LOG_DIR")
-if _env_log_dir:
-    LOG_DIR = str(Path(_env_log_dir))
-else:
-    LOG_DIR = str(DEFAULT_LOG_DIR)
+LOG_DIR = os.environ.get(
+    "LOG_DIR",
+    str(
+        Path(
+            BASE_DIR,
+            "log",
+            "local",
+        )
+    ),
+)
 
 LOGGING_DEBUG = os.environ.get("LOGGING_DEBUG", "True").lower() in ("true", "1", "yes")
