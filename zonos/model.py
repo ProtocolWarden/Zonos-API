@@ -67,14 +67,29 @@ class Zonos(nn.Module):
         cls, config_path: str, model_path: str, device: str = DEFAULT_DEVICE, backbone: str | None = None
     ) -> "Zonos":
         config = ZonosConfig.from_dict(json.load(open(config_path)))
+        requires_mamba = bool(config.backbone.ssm_cfg)
+        # Hybrid checkpoints populate `ssm_cfg`. The transformer backbone asserts this
+        # field is empty, so ensuring we select the mamba implementation (or fail with a
+        # clear error) avoids the runtime assertion users encountered previously.
+
         if backbone:
             backbone_cls = BACKBONES[backbone]
+            if requires_mamba and backbone != "mamba_ssm":
+                raise RuntimeError(
+                    "This checkpoint requires the mamba-ssm backbone. "
+                    "Install the `mamba-ssm` package or omit the `backbone` override."
+                )
         else:
-            is_transformer = not bool(config.backbone.ssm_cfg)
-            backbone_cls = DEFAULT_BACKBONE_CLS
-            # Preferentially route to pure torch backbone for increased performance and lower latency.
-            if is_transformer and "torch" in BACKBONES:
-                backbone_cls = BACKBONES["torch"]
+            if requires_mamba:
+                if "mamba_ssm" not in BACKBONES:
+                    raise RuntimeError(
+                        "This checkpoint was trained with the mamba-ssm backbone, but the dependency "
+                        "is not installed. Install the `mamba-ssm` package to load it, or select a "
+                        "transformer-only checkpoint."
+                    )
+                backbone_cls = BACKBONES["mamba_ssm"]
+            else:
+                backbone_cls = BACKBONES.get("torch", DEFAULT_BACKBONE_CLS)
 
         model = cls(config, backbone_cls).to(device, torch.bfloat16)
         model.autoencoder.dac.to(device)
