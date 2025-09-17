@@ -132,8 +132,16 @@ def get_logger(
     if cfg.LOGGING_DEBUG:
         # Dynamically set log file names for each driver
         log_dir = Path(cfg.LOG_DIR)  # Directory for log files, set in config
+        # Ensure the directory exists so file handlers do not fail
+        log_dir.mkdir(parents=True, exist_ok=True)
         info_log_file = log_dir / f"{logger_name}.info"
         error_log_file = log_dir / f"{logger_name}.err"
+
+        # Guarantee the log files exist even before the first write attempt.
+        # While RotatingFileHandler will create them on demand, touching them
+        # explicitly avoids confusion when troubleshooting logging setup.
+        info_log_file.touch(exist_ok=True)
+        error_log_file.touch(exist_ok=True)
 
         # Info File Rotating Handler (rotation after 5MB, keeping 3 backups)
         info_file_handler = RotatingFileHandler(
