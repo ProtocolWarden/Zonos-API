@@ -66,15 +66,22 @@ class Zonos(nn.Module):
     def from_local(
         cls, config_path: str, model_path: str, device: str = DEFAULT_DEVICE, backbone: str | None = None
     ) -> "Zonos":
-        config = ZonosConfig.from_dict(json.load(open(config_path)))
+        with open(config_path) as config_file:
+            config = ZonosConfig.from_dict(json.load(config_file))
         if backbone:
             backbone_cls = BACKBONES[backbone]
         else:
-            is_transformer = not bool(config.backbone.ssm_cfg)
-            backbone_cls = DEFAULT_BACKBONE_CLS
-            # Preferentially route to pure torch backbone for increased performance and lower latency.
-            if is_transformer and "torch" in BACKBONES:
-                backbone_cls = BACKBONES["torch"]
+            uses_state_space = bool(config.backbone.ssm_cfg)
+            if uses_state_space:
+                if "mamba_ssm" not in BACKBONES:
+                    raise ImportError(
+                        "The requested model requires the optional mamba-ssm backend. "
+                        "Install it with `pip install mamba-ssm` or choose a transformer-only checkpoint."
+                    )
+                backbone_cls = BACKBONES["mamba_ssm"]
+            else:
+                # Preferentially route to pure torch backbone for increased performance and lower latency.
+                backbone_cls = BACKBONES.get("torch", DEFAULT_BACKBONE_CLS)
 
         model = cls(config, backbone_cls).to(device, torch.bfloat16)
         model.autoencoder.dac.to(device)
