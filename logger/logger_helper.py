@@ -137,6 +137,12 @@ def get_logger(
         info_log_file = log_dir / f"{logger_name}.info"
         error_log_file = log_dir / f"{logger_name}.err"
 
+        # Guarantee the log files exist even before the first write attempt.
+        # While RotatingFileHandler will create them on demand, touching them
+        # explicitly avoids confusion when troubleshooting logging setup.
+        info_log_file.touch(exist_ok=True)
+        error_log_file.touch(exist_ok=True)
+
         # Info File Rotating Handler (rotation after 5MB, keeping 3 backups)
         info_file_handler = RotatingFileHandler(
             info_log_file,
