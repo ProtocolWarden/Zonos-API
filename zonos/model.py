@@ -68,6 +68,9 @@ class Zonos(nn.Module):
     ) -> "Zonos":
         config = ZonosConfig.from_dict(json.load(open(config_path)))
         requires_mamba = bool(config.backbone.ssm_cfg)
+        # Hybrid checkpoints populate `ssm_cfg`. The transformer backbone asserts this
+        # field is empty, so ensuring we select the mamba implementation (or fail with a
+        # clear error) avoids the runtime assertion users encountered previously.
 
         if backbone:
             backbone_cls = BACKBONES[backbone]
