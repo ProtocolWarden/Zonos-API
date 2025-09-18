@@ -20,14 +20,28 @@ WORKDIR /tmp/mamba
 
 COPY constraints/torch-cu124-mamba.txt ./constraints/torch-cu124-mamba.txt
 
-RUN --mount=type=cache,target=/var/cache/apt,id=apt-cache-zonos \
-    rm -f /var/cache/apt/archives/lock /var/lib/dpkg/lock-frontend /var/lib/dpkg/lock /var/lib/apt/lists/lock && \
-    apt-get update && \
+RUN --mount=type=cache,target=/var/cache/apt,id=apt-cache-zonos-builder \
+    set -eux; \
+    \
+    # Remove any stale APT/DPKG locks (cache mount can retain these).
+    rm -f \
+      /var/cache/apt/archives/lock \
+      /var/lib/dpkg/lock-frontend \
+      /var/lib/dpkg/lock \
+      /var/lib/apt/lists/lock; \
+    \
+    # Update with retries for transient network issues.
+    apt-get -o Acquire::Retries=3 update; \
+    \
+    # Install minimal deps without recommendations.
     apt-get install -y --no-install-recommends \
-        build-essential \
-        ninja-build \
-        git \
-    && rm -rf /var/lib/apt/lists/*
+      build-essential \
+      ninja-build \
+      git; \
+    \
+    # Clean package lists and cache to minimize layers.
+    apt-get clean; \
+    rm -rf /var/lib/apt/lists/*
 
 RUN pip install --upgrade pip setuptools wheel
 
@@ -78,16 +92,30 @@ WORKDIR /app
 COPY constraints/torch-cu124-mamba.txt ./constraints/torch-cu124-mamba.txt
 COPY requirements ./requirements
 
-RUN --mount=type=cache,target=/var/cache/apt,id=apt-cache-zonos \
-    rm -f /var/cache/apt/archives/lock /var/lib/dpkg/lock-frontend /var/lib/dpkg/lock /var/lib/apt/lists/lock && \
-    apt-get update && \
+RUN --mount=type=cache,target=/var/cache/apt,id=apt-cache-zonos-base \
+    set -eux; \
+    \
+    # Remove any stale APT/DPKG locks (cache mount can retain these).
+    rm -f \
+      /var/cache/apt/archives/lock \
+      /var/lib/dpkg/lock-frontend \
+      /var/lib/dpkg/lock \
+      /var/lib/apt/lists/lock; \
+    \
+    # Update with retries for transient network issues.
+    apt-get -o Acquire::Retries=3 update; \
+    \
+    # Install runtime deps without recommendations.
     apt-get install -y --no-install-recommends \
-        espeak-ng \
-        ffmpeg \
-        libsndfile1 \
-        curl \
-        git \
-    && rm -rf /var/lib/apt/lists/*
+      espeak-ng \
+      ffmpeg \
+      libsndfile1 \
+      curl \
+      git; \
+    \
+    # Clean package lists and cache to minimize layers.
+    apt-get clean; \
+    rm -rf /var/lib/apt/lists/*
 
 RUN pip install --upgrade pip setuptools wheel
 
