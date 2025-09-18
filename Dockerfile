@@ -12,6 +12,7 @@ ARG WITH_TORCHVISION
 
 ENV DEBIAN_FRONTEND=noninteractive \
     TORCH_CUDA_INDEX_URL=https://download.pytorch.org/whl/cu124 \
+    PYPI_INDEX_URL=https://pypi.org/simple \
     PIP_DISABLE_PIP_VERSION_CHECK=1 \
     PIP_NO_COLOR=1 \
     PIP_DEFAULT_TIMEOUT=60
@@ -53,18 +54,21 @@ RUN --mount=type=cache,target=/root/.cache/pip,id=pip-cache-zonos-builder \
     pip install --upgrade pip setuptools wheel
 
 RUN PIP_INDEX_URL=${TORCH_CUDA_INDEX_URL} \
+    PIP_EXTRA_INDEX_URL=${PYPI_INDEX_URL} \
     pip install --no-cache-dir \
     -c constraints/torch-cu124-mamba.txt \
     torch==2.6.0+cu124 \
     torchaudio==2.6.0+cu124
 
 RUN PIP_INDEX_URL=${TORCH_CUDA_INDEX_URL} \
+    PIP_EXTRA_INDEX_URL=${PYPI_INDEX_URL} \
     pip wheel --no-cache-dir --no-binary=:all: \
     -c constraints/torch-cu124-mamba.txt \
     mamba-ssm==2.2.5 \
     -w /tmp/wheels
 
 RUN PIP_INDEX_URL=${TORCH_CUDA_INDEX_URL} \
+    PIP_EXTRA_INDEX_URL=${PYPI_INDEX_URL} \
     pip wheel --no-cache-dir --no-binary=:all: \
     -c constraints/torch-cu124-mamba.txt \
     flash-attn==2.7.3 \
@@ -73,6 +77,7 @@ RUN PIP_INDEX_URL=${TORCH_CUDA_INDEX_URL} \
 
 RUN if [ "$WITH_TORCHVISION" = "1" ]; then \
       PIP_INDEX_URL=${TORCH_CUDA_INDEX_URL} \
+      PIP_EXTRA_INDEX_URL=${PYPI_INDEX_URL} \
       pip wheel --no-cache-dir --no-binary=:all: \
         -c constraints/torch-cu124-mamba.txt \
         torchvision==0.21.0+cu124 \
@@ -87,6 +92,7 @@ ARG WITH_TORCHVISION
 
 ENV DEBIAN_FRONTEND=noninteractive \
     TORCH_CUDA_INDEX_URL=https://download.pytorch.org/whl/cu124 \
+    PYPI_INDEX_URL=https://pypi.org/simple \
     PIP_DISABLE_PIP_VERSION_CHECK=1 \
     PIP_NO_COLOR=1 \
     PIP_DEFAULT_TIMEOUT=60
@@ -134,6 +140,7 @@ RUN --mount=type=cache,target=/root/.cache/pip,id=pip-cache-zonos-base \
     pip install --upgrade pip setuptools wheel
 
 RUN PIP_INDEX_URL=${TORCH_CUDA_INDEX_URL} \
+    PIP_EXTRA_INDEX_URL=${PYPI_INDEX_URL} \
     pip install --no-cache-dir \
     -c constraints/torch-cu124-mamba.txt \
     torch==2.6.0+cu124 \
