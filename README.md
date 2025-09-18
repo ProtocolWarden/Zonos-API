@@ -67,8 +67,7 @@ torchaudio.save("sample.wav", wavs[0], model.autoencoder.sampling_rate)
 ### Gradio interface (recommended)
 
 ```bash
-uv run gradio_interface.py
-# python gradio_interface.py
+python gradio_interface.py
 ```
 
 This should produce a `sample.wav` file in your project root directory.
@@ -229,28 +228,37 @@ apt install -y espeak-ng # For Ubuntu
 
 #### Python dependencies
 
-We highly recommend using a recent version of [uv](https://docs.astral.sh/uv/#installation) for installation. If you don't have uv installed, you can install it via pip: `pip install -U uv`.
-
-##### Installing into a new uv virtual environment (recommended)
+We recommend using `pip` inside a virtual environment so the torch stack stays aligned with the CUDA toolchain. A minimal setup looks like:
 
 ```bash
-uv sync
-uv sync --extra compile # optional but needed to run the hybrid
-uv pip install -e .
+python -m venv .venv
+source .venv/bin/activate
+python -m pip install --upgrade pip
+python -m pip install --index-url https://download.pytorch.org/whl/cu124 \
+  -c constraints/torch-cu124-mamba.txt \
+  torch==2.6.0+cu124 torchaudio==2.6.0+cu124
+python -m pip install -r requirements/runtime.txt
+python -m pip install -e .
 ```
 
-##### Installing into the system/actived environment using uv
+> Need `torchvision`? Uncomment the pinned line in `constraints/torch-cu124-mamba.txt` and append `torchvision==0.21.0+cu124` to the install command above so it is pulled from the same CUDA wheel index.
+
+Hybrid checkpoints additionally need the CUDA extensions from `requirements/compile.txt`:
 
 ```bash
-uv pip install -e .
-uv pip install -e .[compile] # optional but needed to run the hybrid
+python -m pip install --no-build-isolation -r requirements/compile.txt
+python -m pip install .[compile]
 ```
 
-##### Installing into the system/actived environment using pip
+##### Quick environment diagnostic
 
 ```bash
-pip install -e .
-pip install --no-build-isolation -e .[compile] # optional but needed to run the hybrid
+python - <<'PY'
+import torch, sys
+print('sys.prefix=', sys.prefix)
+print('torch=', torch.__file__)
+print('torch ver=', torch.__version__)
+PY
 ```
 
 ##### Confirm that it's working
@@ -258,8 +266,7 @@ pip install --no-build-isolation -e .[compile] # optional but needed to run the 
 For convenience we provide a minimal example to check that the installation works:
 
 ```bash
-uv run sample.py
-# python sample.py
+python sample.py
 ```
 
 ## Docker installation

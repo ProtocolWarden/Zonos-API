@@ -13,6 +13,7 @@ set_logger_name(logger_name=Path(__file__).stem)
 # //////////////////////////////////////////////////////////////////////////////////////
 
 import os
+import sys
 import json
 import uuid
 import time
@@ -56,6 +57,13 @@ def log_backend_versions() -> bool:
         cuda_version,
         torch.cuda.is_available(),
     )
+
+    try:
+        torch_path = getattr(torch, "__file__", "<unknown>")
+        logger.info("Python prefix=%s", sys.prefix)
+        logger.info("Torch path=%s", torch_path)
+    except Exception:
+        logger.warning("Could not log env/torch path", exc_info=True)
 
     try:
         import mamba_ssm  # type: ignore

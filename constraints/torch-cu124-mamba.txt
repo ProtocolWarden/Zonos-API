@@ -4,6 +4,7 @@
 # Core torch packages
 torch==2.6.0+cu124 ; platform_system == "Linux"
 torchaudio==2.6.0+cu124 ; platform_system == "Linux"
+# torchvision==0.21.0+cu124 ; platform_system == "Linux"  # Uncomment if torchvision is needed
 
 # Build helpers required by causal-conv1d and mamba-ssm
 ninja==1.11.1.1

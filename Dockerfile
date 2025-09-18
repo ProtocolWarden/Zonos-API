@@ -3,9 +3,10 @@
 # ========================================================
 
 # ========================================================
-# Stage 0 — Build mamba-ssm wheel against pinned torch
+# Stage 0 — Build CUDA wheels against pinned torch
+# Update the digest with tools/docker/update_pytorch_digest.sh when refreshing the base image
 # ========================================================
-FROM pytorch/pytorch:2.6.0-cuda12.4-cudnn9-devel AS mamba-builder
+FROM pytorch/pytorch:2.6.0-cuda12.4-cudnn9-devel@sha256:0cf3402e946b7c384ba943ee05c90b4c5a4a05227923921f2b0918c011cfaf56 AS mamba-builder
 
 ENV DEBIAN_FRONTEND=noninteractive \
     TORCH_CUDA_INDEX_URL=https://download.pytorch.org/whl/cu124
@@ -33,13 +34,20 @@ RUN PIP_INDEX_URL=${TORCH_CUDA_INDEX_URL} \
 RUN PIP_INDEX_URL=${TORCH_CUDA_INDEX_URL} \
     pip wheel --no-cache-dir --no-binary=:all: \
     -c constraints/torch-cu124-mamba.txt \
-    mamba-ssm \
+    mamba-ssm==2.2.5 \
+    -w /tmp/wheels
+
+RUN PIP_INDEX_URL=${TORCH_CUDA_INDEX_URL} \
+    pip wheel --no-cache-dir --no-binary=:all: \
+    -c constraints/torch-cu124-mamba.txt \
+    flash-attn==2.7.3 \
+    causal-conv1d==1.5.0.post8 \
     -w /tmp/wheels
 
 # ========================================================
 # Stage 1 — Base layer with Python and system deps
 # ========================================================
-FROM pytorch/pytorch:2.6.0-cuda12.4-cudnn9-devel AS base
+FROM pytorch/pytorch:2.6.0-cuda12.4-cudnn9-devel@sha256:0cf3402e946b7c384ba943ee05c90b4c5a4a05227923921f2b0918c011cfaf56 AS base
 
 ENV DEBIAN_FRONTEND=noninteractive \
     TORCH_CUDA_INDEX_URL=https://download.pytorch.org/whl/cu124
@@ -73,19 +81,27 @@ RUN PIP_INDEX_URL=${TORCH_CUDA_INDEX_URL} \
     torchaudio==2.6.0+cu124
 
 RUN pip install --no-cache-dir -r requirements/runtime.txt
-RUN pip install --no-cache-dir --no-build-isolation -r requirements/compile.txt
 
 COPY --from=mamba-builder /tmp/wheels /tmp/wheels
-RUN pip install --no-cache-dir --no-index --find-links=/tmp/wheels mamba-ssm
+RUN pip install --no-cache-dir --no-index --find-links=/tmp/wheels \
+    mamba-ssm==2.2.5 \
+    flash-attn==2.7.3 \
+    causal-conv1d==1.5.0.post8
 
 COPY pyproject.toml ./
 COPY zonos ./zonos
 RUN pip install --no-cache-dir --no-deps -e .
 
 RUN python - <<'PY'
-import torch, mamba_ssm
+import torch
+import mamba_ssm
+import flash_attn
+import causal_conv1d
+
 print('Torch', torch.__version__, 'CUDA', torch.version.cuda, 'available', torch.cuda.is_available())
 print('mamba-ssm', getattr(mamba_ssm, '__version__', 'unknown'))
+print('flash-attn', getattr(flash_attn, '__version__', 'unknown'))
+print('causal-conv1d', getattr(causal_conv1d, '__version__', 'unknown'))
 PY
 
 # ========================================================
