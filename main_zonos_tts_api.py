@@ -46,19 +46,66 @@ VOICE_CACHE: Dict[str, torch.Tensor] = {}
 
 os.makedirs(VOICE_STORAGE_DIR, exist_ok=True)
 
+
+def log_backend_versions() -> bool:
+    """Log torch/mamba versions and report whether the hybrid stack is usable."""
+    cuda_version = torch.version.cuda or "cpu-only"
+    logger.info(
+        "Torch %s (CUDA %s, available=%s)",
+        torch.__version__,
+        cuda_version,
+        torch.cuda.is_available(),
+    )
+
+    try:
+        import mamba_ssm  # type: ignore
+
+        logger.info("mamba-ssm %s import OK", getattr(mamba_ssm, "__version__", "unknown"))
+        return True
+    except Exception:
+        logger.warning(
+            "mamba-ssm import failed; the hybrid checkpoint will be skipped.\n%s",
+            traceback.format_exc(),
+        )
+        return False
+
 # //////////////////////////////////////////////////////////////////////////////////////
 # ///// Helpers ////////////////////////////////////////////////////////////////////////
 # //////////////////////////////////////////////////////////////////////////////////////
 
-def load_models():
+def load_models(skip_hybrid: bool = False):
+    logger.info("Loading Zonos models into VRAM...")
+    device = "cuda" if torch.cuda.is_available() else "cpu"
+
     try:
-        logger.info("Loading Zonos models into VRAM...")
-        device = "cuda"
-        MODELS["transformer"] = Zonos.from_pretrained("Zyphra/Zonos-v0.1-transformer", device=device).eval().requires_grad_(False)
-        MODELS["hybrid"] = Zonos.from_pretrained("Zyphra/Zonos-v0.1-hybrid", device=device).eval().requires_grad_(False)
-        logger.info("Models loaded successfully.")
+        MODELS["transformer"] = (
+            Zonos.from_pretrained("Zyphra/Zonos-v0.1-transformer", device=device)
+            .eval()
+            .requires_grad_(False)
+        )
+        logger.info("Transformer checkpoint loaded on %s.", device)
     except Exception:
-        logger.error("Failed to load models:\n%s", traceback.format_exc())
+        logger.error("Failed to load transformer checkpoint:\n%s", traceback.format_exc())
+        return
+
+    if skip_hybrid:
+        logger.warning("Skipping hybrid checkpoint load because mamba-ssm is unavailable.")
+        MODELS["hybrid"] = None
+        return
+
+    try:
+        MODELS["hybrid"] = (
+            Zonos.from_pretrained("Zyphra/Zonos-v0.1-hybrid", device=device)
+            .eval()
+            .requires_grad_(False)
+        )
+        logger.info("Hybrid checkpoint loaded on %s.", device)
+    except Exception:
+        MODELS["hybrid"] = None
+        logger.warning(
+            "Hybrid checkpoint unavailable; requests will fall back to the transformer model.\n%s",
+            traceback.format_exc(),
+        )
 
 def load_voice_metadata():
     try:
@@ -150,7 +197,17 @@ class VoiceListResponse(BaseModel):
 @app.post("/v1/audio/speech")
 async def create_speech(request: SpeechRequest):
     try:
-        model = MODELS["transformer" if "transformer" in request.model else "hybrid"]
+        requested_key = "transformer" if "transformer" in request.model else "hybrid"
+        model = MODELS.get(requested_key)
+
+        if model is None and requested_key == "hybrid":
+            logger.warning(
+                "Hybrid model requested but not available; falling back to transformer weights."
+            )
+            model = MODELS.get("transformer")
+
+        if model is None:
+            raise HTTPException(status_code=503, detail="Model weights are not loaded yet.")
         speaking_rate = 15.0 * request.speed
 
         emotion_tensor = None
@@ -292,7 +349,8 @@ async def list_models():
 
 @app.on_event("startup")
 async def startup_event():
-    load_models()
+    hybrid_ready = log_backend_versions()
+    load_models(skip_hybrid=not hybrid_ready)
     load_voice_embeddings()
 
 if __name__ == "__main__":
