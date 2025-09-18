@@ -13,6 +13,7 @@ set_logger_name(logger_name=Path(__file__).stem)
 # //////////////////////////////////////////////////////////////////////////////////////
 
 import os
+import sys
 import json
 import uuid
 import time
@@ -39,26 +40,116 @@ multiprocessing.set_start_method('spawn', force=True)
 
 app = FastAPI(title="Zonos API", description="OpenAI-compatible TTS API for Zonos")
 
+TRANSFORMER_REPO_ID = "Zyphra/Zonos-v0.1-transformer"
+HYBRID_REPO_ID = "Zyphra/Zonos-v0.1-hybrid"
+MODEL_SLOT_BY_ID = {
+    TRANSFORMER_REPO_ID: "transformer",
+    HYBRID_REPO_ID: "hybrid",
+}
+DEFAULT_MODEL_ID = TRANSFORMER_REPO_ID
+
 MODELS = {"transformer": None, "hybrid": None}
+HYBRID_SKIP_REASON: Optional[str] = None
 VOICE_STORAGE_DIR = os.environ.get("VOICE_STORAGE_DIR", "data/voice_storage")
 VOICE_METADATA_FILE = os.path.join(VOICE_STORAGE_DIR, "voice_metadata.json")
 VOICE_CACHE: Dict[str, torch.Tensor] = {}
 
+
+def _cuda_is_available() -> bool:
+    cuda_attr = getattr(torch, "cuda", None)
+    is_available = getattr(cuda_attr, "is_available", None)
+    if callable(is_available):
+        try:
+            return bool(is_available())
+        except Exception:
+            return False
+    return False
+
+
+DEVICE = "cuda" if _cuda_is_available() else "cpu"
+
 os.makedirs(VOICE_STORAGE_DIR, exist_ok=True)
+
+
+def log_backend_versions() -> bool:
+    """Log torch/mamba versions and report whether the hybrid stack is usable."""
+    global HYBRID_SKIP_REASON
+
+    HYBRID_SKIP_REASON = None
+    torch_version = getattr(torch, "__version__", "unknown")
+    cuda_version = getattr(getattr(torch, "version", None), "cuda", None) or "cpu-only"
+    cuda_available = _cuda_is_available()
+    logger.info(
+        "Torch %s (CUDA %s, available=%s)",
+        torch_version,
+        cuda_version,
+        cuda_available,
+    )
+
+    try:
+        torch_path = getattr(torch, "__file__", "<unknown>")
+        logger.info("Python prefix=%s", sys.prefix)
+        logger.info("Torch path=%s", torch_path)
+    except Exception:
+        logger.warning("Could not log env/torch path", exc_info=True)
+
+    try:
+        import mamba_ssm  # type: ignore
+
+        logger.info("mamba-ssm %s import OK", getattr(mamba_ssm, "__version__", "unknown"))
+        return True
+    except Exception:
+        HYBRID_SKIP_REASON = "mamba-ssm import failed"
+        logger.warning(
+            "mamba-ssm import failed; the hybrid checkpoint will be skipped.\n%s",
+            traceback.format_exc(),
+        )
+        return False
 
 # //////////////////////////////////////////////////////////////////////////////////////
 # ///// Helpers ////////////////////////////////////////////////////////////////////////
 # //////////////////////////////////////////////////////////////////////////////////////
 
-def load_models():
+def load_models(skip_hybrid: bool = False):
+    global HYBRID_SKIP_REASON
+    logger.info("Loading Zonos models into VRAM...")
+    device = DEVICE
+
     try:
-        logger.info("Loading Zonos models into VRAM...")
-        device = "cuda"
-        MODELS["transformer"] = Zonos.from_pretrained("Zyphra/Zonos-v0.1-transformer", device=device).eval().requires_grad_(False)
-        MODELS["hybrid"] = Zonos.from_pretrained("Zyphra/Zonos-v0.1-hybrid", device=device).eval().requires_grad_(False)
-        logger.info("Models loaded successfully.")
+        MODELS["transformer"] = (
+            Zonos.from_pretrained(TRANSFORMER_REPO_ID, device=device, backbone="torch")
+            .eval()
+            .requires_grad_(False)
+        )
+        logger.info("Transformer checkpoint loaded on %s.", device)
     except Exception:
-        logger.error("Failed to load models:\n%s", traceback.format_exc())
+        logger.error("Failed to load transformer checkpoint:\n%s", traceback.format_exc())
+        return
+
+    if skip_hybrid:
+        if HYBRID_SKIP_REASON is None:
+            HYBRID_SKIP_REASON = "skipped by configuration"
+        logger.warning(
+            "Skipping hybrid checkpoint load because mamba-ssm is unavailable (%s).",
+            HYBRID_SKIP_REASON,
+        )
+        MODELS["hybrid"] = None
+        return
+
+    try:
+        MODELS["hybrid"] = (
+            Zonos.from_pretrained(HYBRID_REPO_ID, device=device, backbone="mamba_ssm")
+            .eval()
+            .requires_grad_(False)
+        )
+        logger.info("Hybrid checkpoint loaded on %s.", device)
+    except Exception:
+        MODELS["hybrid"] = None
+        HYBRID_SKIP_REASON = "hybrid checkpoint load failure"
+        logger.warning(
+            "Hybrid checkpoint unavailable; requests will fall back to the transformer model.\n%s",
+            traceback.format_exc(),
+        )
 
 def load_voice_metadata():
     try:
@@ -82,7 +173,7 @@ def load_voice_embeddings():
         tensor_path = os.path.join(VOICE_STORAGE_DIR, f"{voice_id}.pt")
         try:
             if os.path.exists(tensor_path):
-                VOICE_CACHE[voice_id] = torch.load(tensor_path, map_location="cuda")
+                VOICE_CACHE[voice_id] = torch.load(tensor_path, map_location=DEVICE)
                 logger.info(f"Loaded voice: {info.get('name', voice_id)}")
         except Exception:
             logger.error("Error loading voice embedding %s:\n%s", voice_id, traceback.format_exc())
@@ -105,7 +196,7 @@ def get_voice_embedding(voice_identifier):
             tensor_path = os.path.join(VOICE_STORAGE_DIR, f"{voice_id}.pt")
             try:
                 if os.path.exists(tensor_path):
-                    embedding = torch.load(tensor_path, map_location="cuda")
+                    embedding = torch.load(tensor_path, map_location=DEVICE)
                     VOICE_CACHE[voice_id] = embedding
                     return embedding
             except Exception:
@@ -117,7 +208,7 @@ def get_voice_embedding(voice_identifier):
 # //////////////////////////////////////////////////////////////////////////////////////
 
 class SpeechRequest(BaseModel):
-    model: str = Field("Zyphra/Zonos-v0.1-transformer")
+    model: str = Field(DEFAULT_MODEL_ID)
     input: str = Field(..., max_length=500)
     voice: Optional[str] = None
     speed: float = Field(1.0, ge=0.5, le=2.0)
@@ -150,7 +241,29 @@ class VoiceListResponse(BaseModel):
 @app.post("/v1/audio/speech")
 async def create_speech(request: SpeechRequest):
     try:
-        model = MODELS["transformer" if "transformer" in request.model else "hybrid"]
+        requested_key = MODEL_SLOT_BY_ID.get(request.model)
+        if requested_key is None:
+            requested_key = "transformer" if "transformer" in request.model else "hybrid"
+            if requested_key == "hybrid":
+                logger.warning(
+                    "Unknown model id '%s'; defaulting to hybrid slot", request.model
+                )
+            else:
+                logger.warning(
+                    "Unknown model id '%s'; defaulting to transformer weights", request.model
+                )
+        model = MODELS.get(requested_key)
+
+        if model is None and requested_key == "hybrid":
+            reason = HYBRID_SKIP_REASON or "hybrid weights not loaded"
+            logger.warning(
+                "Hybrid model requested but not available (%s); falling back to transformer weights.",
+                reason,
+            )
+            model = MODELS.get("transformer")
+
+        if model is None:
+            raise HTTPException(status_code=503, detail="Model weights are not loaded yet.")
         speaking_rate = 15.0 * request.speed
 
         emotion_tensor = None
@@ -164,7 +277,7 @@ async def create_speech(request: SpeechRequest):
                 request.emotion.get("anger", 0.05),
                 request.emotion.get("other", 0.1),
                 request.emotion.get("neutral", 0.2),
-            ], device="cuda").unsqueeze(0)
+            ], device=DEVICE).unsqueeze(0)
 
         speaker_embedding = get_voice_embedding(request.voice) if request.voice else None
         if request.voice and speaker_embedding is None:
@@ -176,7 +289,7 @@ async def create_speech(request: SpeechRequest):
             "speaker": speaker_embedding,
             "emotion": emotion_tensor,
             "speaking_rate": request.speaking_rate if request.speaking_rate is not None else speaking_rate,
-            "device": "cuda",
+            "device": DEVICE,
             "unconditional_keys": [] if request.emotion else ["emotion"],
         }
         if request.pitch_std is not None:
@@ -242,9 +355,9 @@ async def create_voice(file: UploadFile = File(...), name: Optional[str] = Form(
 
         timestamp = int(time.time())
         voice_id = f"voice_{timestamp}_{uuid.uuid4().hex[:8]}"
-        VOICE_CACHE[voice_id] = speaker_embedding.to("cuda")
+        VOICE_CACHE[voice_id] = speaker_embedding.to(DEVICE)
 
-        if not save_voice_embedding(voice_id, speaker_embedding.to("cuda")):
+        if not save_voice_embedding(voice_id, speaker_embedding.to(DEVICE)):
             raise HTTPException(status_code=500, detail="Failed to save voice embedding")
 
         metadata = load_voice_metadata()
@@ -273,26 +386,26 @@ async def list_voices():
 
 @app.get("/v1/audio/models")
 async def list_models():
-    return {
-        "models": [
-            {
-                "id": "Zyphra/Zonos-v0.1-transformer",
-                "created": 1234567890,
-                "object": "model",
-                "owned_by": "zyphra"
-            },
-            {
-                "id": "Zyphra/Zonos-v0.1-hybrid",
-                "created": 1234567890,
-                "object": "model",
-                "owned_by": "zyphra"
-            }
-        ]
-    }
+    models = []
+    for repo_id, slot in MODEL_SLOT_BY_ID.items():
+        ready = MODELS.get(slot) is not None
+        entry = {
+            "id": repo_id,
+            "created": 1234567890,
+            "object": "model",
+            "owned_by": "zyphra",
+            "ready": ready,
+        }
+        if slot == "hybrid" and not ready and HYBRID_SKIP_REASON:
+            entry["note"] = HYBRID_SKIP_REASON
+        models.append(entry)
+
+    return {"models": models}
 
 @app.on_event("startup")
 async def startup_event():
-    load_models()
+    hybrid_ready = log_backend_versions()
+    load_models(skip_hybrid=not hybrid_ready)
     load_voice_embeddings()
 
 if __name__ == "__main__":

@@ -67,8 +67,7 @@ torchaudio.save("sample.wav", wavs[0], model.autoencoder.sampling_rate)
 ### Gradio interface (recommended)
 
 ```bash
-uv run gradio_interface.py
-# python gradio_interface.py
+python gradio_interface.py
 ```
 
 This should produce a `sample.wav` file in your project root directory.
@@ -78,6 +77,33 @@ _For repeated sampling we highly recommend using the gradio interface instead, a
 ### API Usage (OpenAI-compatible)
 
 Zonos provides an OpenAI-compatible API that allows you to generate speech through HTTP requests.
+
+### Model availability & hybrid fallback
+
+The API defaults to the transformer checkpoint (`Zyphra/Zonos-v0.1-transformer`). Hybrid requests
+(`Zyphra/Zonos-v0.1-hybrid`) rely on the optional `mamba-ssm` CUDA extension. At startup the
+service logs the active Python prefix, the Torch module path, and whether the hybrid stack imported
+successfully. If the extension is missing or fails to load, the hybrid checkpoint is skipped and the
+server transparently serves transformer responses instead.
+
+Re-run the environment probe at any time with:
+
+```bash
+python - <<'PY'
+import torch, sys
+print('sys.prefix=', sys.prefix)
+print('torch file=', torch.__file__)
+print('torch version=', torch.__version__)
+try:
+    import mamba_ssm
+    print('mamba-ssm=', mamba_ssm.__version__)
+except Exception as exc:
+    print('mamba-ssm import failed:', exc)
+PY
+```
+
+If the probe reports a failure, rebuild the Docker image (keeping the pinned base digest) or
+reinstall `mamba-ssm` with `pip install --no-binary=:all: mamba-ssm` inside the running container.
 
 #### Setting up the API
 
@@ -229,28 +255,43 @@ apt install -y espeak-ng # For Ubuntu
 
 #### Python dependencies
 
-We highly recommend using a recent version of [uv](https://docs.astral.sh/uv/#installation) for installation. If you don't have uv installed, you can install it via pip: `pip install -U uv`.
-
-##### Installing into a new uv virtual environment (recommended)
+We recommend using `pip` inside a virtual environment so the torch stack stays aligned with the CUDA toolchain. A minimal setup looks like:
 
 ```bash
-uv sync
-uv sync --extra compile # optional but needed to run the hybrid
-uv pip install -e .
+python -m venv .venv
+source .venv/bin/activate
+python -m pip install --upgrade pip
+python -m pip install --index-url https://download.pytorch.org/whl/cu124 \
+  -c constraints/torch-cu124-mamba.txt \
+  torch==2.6.0+cu124 torchaudio==2.6.0+cu124
+python -m pip install -r requirements/runtime.txt
+python -m pip install -e . --no-deps
 ```
 
-##### Installing into the system/actived environment using uv
+> Need `torchvision`? Uncomment the pinned line in `constraints/torch-cu124-mamba.txt` and append `torchvision==0.21.0+cu124` to the install command above so it is pulled from the same CUDA wheel index.
+
+Hybrid checkpoints additionally need the CUDA extensions from `requirements/compile.txt`:
 
 ```bash
-uv pip install -e .
-uv pip install -e .[compile] # optional but needed to run the hybrid
+python -m pip install --no-build-isolation -r requirements/compile.txt
+# Avoid extras to keep dependency resolution inside the Docker build tooling.
+# python -m pip install .[compile]
 ```
 
-##### Installing into the system/actived environment using pip
+On host installs these extensions compile locally and therefore require a matching CUDA toolkit, compiler, and headers.
+Inside the Docker images they are prebuilt as wheels during the builder stage, so the runtime layer ships without compilers.
+If you also need `torchvision`, enable the pinned build by passing `--build-arg WITH_TORCHVISION=1` (or install the
+`0.21.0+cu124` wheel from the same CUDA index when working on the host).
+
+##### Quick environment diagnostic
 
 ```bash
-pip install -e .
-pip install --no-build-isolation -e .[compile] # optional but needed to run the hybrid
+python - <<'PY'
+import torch, sys
+print('sys.prefix=', sys.prefix)
+print('torch=', torch.__file__)
+print('torch ver=', torch.__version__)
+PY
 ```
 
 ##### Confirm that it's working
@@ -258,8 +299,7 @@ pip install --no-build-isolation -e .[compile] # optional but needed to run the 
 For convenience we provide a minimal example to check that the installation works:
 
 ```bash
-uv run sample.py
-# python sample.py
+python sample.py
 ```
 
 ## Docker installation
