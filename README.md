@@ -265,7 +265,7 @@ python -m pip install --index-url https://download.pytorch.org/whl/cu124 \
   -c constraints/torch-cu124-mamba.txt \
   torch==2.6.0+cu124 torchaudio==2.6.0+cu124
 python -m pip install -r requirements/runtime.txt
-python -m pip install -e .
+python -m pip install -e . --no-deps
 ```
 
 > Need `torchvision`? Uncomment the pinned line in `constraints/torch-cu124-mamba.txt` and append `torchvision==0.21.0+cu124` to the install command above so it is pulled from the same CUDA wheel index.
@@ -274,7 +274,8 @@ Hybrid checkpoints additionally need the CUDA extensions from `requirements/comp
 
 ```bash
 python -m pip install --no-build-isolation -r requirements/compile.txt
-python -m pip install .[compile]
+# Avoid extras to keep dependency resolution inside the Docker build tooling.
+# python -m pip install .[compile]
 ```
 
 ##### Quick environment diagnostic
