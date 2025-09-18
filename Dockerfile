@@ -20,15 +20,37 @@ WORKDIR /tmp/mamba
 
 COPY constraints/torch-cu124-mamba.txt ./constraints/torch-cu124-mamba.txt
 
-RUN --mount=type=cache,target=/var/cache/apt,id=apt-cache-zonos \
-    apt update && \
-    apt install -y --no-install-recommends \
-        build-essential \
-        ninja-build \
-        git \
-    && rm -rf /var/lib/apt/lists/*
+RUN --mount=type=cache,target=/var/cache/apt,id=apt-cache-zonos-builder \
+    set -eux; \
+    \
+    # Remove any stale APT/DPKG locks (cache mount can retain these).
+    rm -f \
+      /var/cache/apt/archives/lock \
+      /var/lib/dpkg/lock-frontend \
+      /var/lib/dpkg/lock \
+      /var/lib/apt/lists/lock; \
+    \
+    # Heal any interrupted dpkg operations (ignore errors).
+    dpkg --configure -a || true; \
+    \
+    # Ensure required dir exists (can be missing in slim images).
+    mkdir -p /var/lib/apt/lists/partial; \
+    \
+    # Update with retries (quiet mode) for transient network issues.
+    apt-get -o Acquire::Retries=3 -y -q update; \
+    \
+    # Install minimal deps quietly without recommendations.
+    apt-get install -y -q --no-install-recommends \
+      build-essential \
+      ninja-build \
+      git; \
+    \
+    # Clean package lists and cache to minimize layers.
+    apt-get clean; \
+    rm -rf /var/lib/apt/lists/*
 
-RUN pip install --upgrade pip setuptools wheel
+RUN --mount=type=cache,target=/root/.cache/pip,id=pip-cache-zonos-builder \
+    pip install --upgrade pip setuptools wheel
 
 RUN PIP_INDEX_URL=${TORCH_CUDA_INDEX_URL} \
     pip install --no-cache-dir \
@@ -77,17 +99,39 @@ WORKDIR /app
 COPY constraints/torch-cu124-mamba.txt ./constraints/torch-cu124-mamba.txt
 COPY requirements ./requirements
 
-RUN --mount=type=cache,target=/var/cache/apt,id=apt-cache-zonos \
-    apt update && \
-    apt install -y --no-install-recommends \
-        espeak-ng \
-        ffmpeg \
-        libsndfile1 \
-        curl \
-        git \
-    && rm -rf /var/lib/apt/lists/*
+RUN --mount=type=cache,target=/var/cache/apt,id=apt-cache-zonos-base \
+    set -eux; \
+    \
+    # Remove any stale APT/DPKG locks (cache mount can retain these).
+    rm -f \
+      /var/cache/apt/archives/lock \
+      /var/lib/dpkg/lock-frontend \
+      /var/lib/dpkg/lock \
+      /var/lib/apt/lists/lock; \
+    \
+    # Heal any interrupted dpkg operations (ignore errors).
+    dpkg --configure -a || true; \
+    \
+    # Ensure required dir exists (can be missing in slim images).
+    mkdir -p /var/lib/apt/lists/partial; \
+    \
+    # Update with retries (quiet mode) for transient network issues.
+    apt-get -o Acquire::Retries=3 -y -q update; \
+    \
+    # Install runtime deps quietly without recommendations.
+    apt-get install -y -q --no-install-recommends \
+      espeak-ng \
+      ffmpeg \
+      libsndfile1 \
+      curl \
+      git; \
+    \
+    # Clean package lists and cache to minimize layers.
+    apt-get clean; \
+    rm -rf /var/lib/apt/lists/*
 
-RUN pip install --upgrade pip setuptools wheel
+RUN --mount=type=cache,target=/root/.cache/pip,id=pip-cache-zonos-base \
+    pip install --upgrade pip setuptools wheel
 
 RUN PIP_INDEX_URL=${TORCH_CUDA_INDEX_URL} \
     pip install --no-cache-dir \
@@ -111,8 +155,10 @@ RUN pip install --no-cache-dir --no-index --find-links=/tmp/wheels \
     flash-attn==2.7.3 \
     causal-conv1d==1.5.0.post8
 
-RUN if [ "$WITH_TORCHVISION" = "1" ]; then \
-      pip install --no-cache-dir --no-index --find-links=/tmp/wheels torchvision==0.21.0+cu124 ; \
+RUN --mount=type=cache,target=/root/.cache/pip,id=pip-cache-zonos-base \
+    if [ "$WITH_TORCHVISION" = "1" ]; then \
+      pip install --no-index --find-links=/tmp/wheels \
+        torchvision==0.21.0+cu124; \
     fi
 RUN rm -rf /tmp/wheels || true
 
