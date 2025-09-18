@@ -15,7 +15,7 @@ LOG_DIR = os.environ.get(
     str(
         Path(
             BASE_DIR,
-            "logs",
+            "log",
             "local",
         )
     ),
