@@ -1,10 +1,37 @@
-__pycache__/
-*.pyc
-*.pyo
-.git/
-.DS_Store
-.env
-.venv/
-dist/
+# VCS and metadata
+.git
+.gitignore
+.gitattributes
+
+# Python cache and build artifacts
+**/__pycache__/
+**/*.py[co]
+*.egg-info/
+.build/
 build/
-*.log
+dist/
+
+# Environments
+.env
+.env.*
+.venv/
+venv/
+
+# OS / editor junk
+**/.DS_Store
+*.swp
+*.swo
+.idea/
+.vscode/
+
+# Node / frontend dependencies
+node_modules/
+
+# Test artifacts
+.coverage
+htmlcov/
+.pytest_cache/
+
+# Wheels and temporary files
+/tmp/
+**/*.whl

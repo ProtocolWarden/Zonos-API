@@ -11,7 +11,10 @@ FROM pytorch/pytorch:2.6.0-cuda12.4-cudnn9-devel@sha256:0cf3402e946b7c384ba943ee
 ARG WITH_TORCHVISION
 
 ENV DEBIAN_FRONTEND=noninteractive \
-    TORCH_CUDA_INDEX_URL=https://download.pytorch.org/whl/cu124
+    TORCH_CUDA_INDEX_URL=https://download.pytorch.org/whl/cu124 \
+    PIP_DISABLE_PIP_VERSION_CHECK=1 \
+    PIP_NO_COLOR=1 \
+    PIP_DEFAULT_TIMEOUT=60
 
 WORKDIR /tmp/mamba
 
@@ -61,7 +64,10 @@ FROM pytorch/pytorch:2.6.0-cuda12.4-cudnn9-devel@sha256:0cf3402e946b7c384ba943ee
 ARG WITH_TORCHVISION
 
 ENV DEBIAN_FRONTEND=noninteractive \
-    TORCH_CUDA_INDEX_URL=https://download.pytorch.org/whl/cu124
+    TORCH_CUDA_INDEX_URL=https://download.pytorch.org/whl/cu124 \
+    PIP_DISABLE_PIP_VERSION_CHECK=1 \
+    PIP_NO_COLOR=1 \
+    PIP_DEFAULT_TIMEOUT=60
 
 LABEL built-by="Ctrl+C Ctrl+V DevOps - Thanks Chat" \
       purpose="API container that yells in beautiful voices"
@@ -108,6 +114,7 @@ RUN pip install --no-cache-dir --no-index --find-links=/tmp/wheels \
 RUN if [ "$WITH_TORCHVISION" = "1" ]; then \
       pip install --no-cache-dir --no-index --find-links=/tmp/wheels torchvision==0.21.0+cu124 ; \
     fi
+RUN rm -rf /tmp/wheels || true
 
 COPY pyproject.toml ./
 COPY zonos ./zonos
