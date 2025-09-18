@@ -78,6 +78,33 @@ _For repeated sampling we highly recommend using the gradio interface instead, a
 
 Zonos provides an OpenAI-compatible API that allows you to generate speech through HTTP requests.
 
+### Model availability & hybrid fallback
+
+The API defaults to the transformer checkpoint (`Zyphra/Zonos-v0.1-transformer`). Hybrid requests
+(`Zyphra/Zonos-v0.1-hybrid`) rely on the optional `mamba-ssm` CUDA extension. At startup the
+service logs the active Python prefix, the Torch module path, and whether the hybrid stack imported
+successfully. If the extension is missing or fails to load, the hybrid checkpoint is skipped and the
+server transparently serves transformer responses instead.
+
+Re-run the environment probe at any time with:
+
+```bash
+python - <<'PY'
+import torch, sys
+print('sys.prefix=', sys.prefix)
+print('torch file=', torch.__file__)
+print('torch version=', torch.__version__)
+try:
+    import mamba_ssm
+    print('mamba-ssm=', mamba_ssm.__version__)
+except Exception as exc:
+    print('mamba-ssm import failed:', exc)
+PY
+```
+
+If the probe reports a failure, rebuild the Docker image (keeping the pinned base digest) or
+reinstall `mamba-ssm` with `pip install --no-binary=:all: mamba-ssm` inside the running container.
+
 #### Setting up the API
 
 ```bash

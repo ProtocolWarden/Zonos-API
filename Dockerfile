@@ -63,8 +63,6 @@ COPY requirements ./requirements
 RUN --mount=type=cache,target=/var/cache/apt,id=apt-cache-zonos \
     apt update && \
     apt install -y --no-install-recommends \
-        build-essential \
-        ninja-build \
         espeak-ng \
         ffmpeg \
         libsndfile1 \
@@ -80,6 +78,14 @@ RUN PIP_INDEX_URL=${TORCH_CUDA_INDEX_URL} \
     torch==2.6.0+cu124 \
     torchaudio==2.6.0+cu124
 
+RUN python - <<'PY'
+import sys
+import torch
+
+print('Torch file:', getattr(torch, '__file__', '<missing>'))
+print('Python prefix:', sys.prefix)
+PY
+
 RUN pip install --no-cache-dir -r requirements/runtime.txt
 
 COPY --from=mamba-builder /tmp/wheels /tmp/wheels
@@ -93,15 +99,26 @@ COPY zonos ./zonos
 RUN pip install --no-cache-dir --no-deps -e .
 
 RUN python - <<'PY'
+import sys
 import torch
-import mamba_ssm
-import flash_attn
-import causal_conv1d
 
 print('Torch', torch.__version__, 'CUDA', torch.version.cuda, 'available', torch.cuda.is_available())
-print('mamba-ssm', getattr(mamba_ssm, '__version__', 'unknown'))
-print('flash-attn', getattr(flash_attn, '__version__', 'unknown'))
-print('causal-conv1d', getattr(causal_conv1d, '__version__', 'unknown'))
+print('Torch file:', getattr(torch, '__file__', '<missing>'))
+print('Python prefix:', sys.prefix)
+
+try:
+    import mamba_ssm
+    print('mamba-ssm', getattr(mamba_ssm, '__version__', 'unknown'))
+except Exception as exc:  # pragma: no cover - smoke check
+    print('mamba-ssm import failed:', exc)
+
+for name in ('flash_attn', 'causal_conv1d'):
+    try:
+        module = __import__(name.replace('-', '_'))
+    except Exception as exc:  # pragma: no cover - smoke check
+        print(f'{name} import failed:', exc)
+    else:
+        print(f'{name}', getattr(module, '__version__', 'unknown'))
 PY
 
 # ========================================================

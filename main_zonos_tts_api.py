@@ -40,7 +40,16 @@ multiprocessing.set_start_method('spawn', force=True)
 
 app = FastAPI(title="Zonos API", description="OpenAI-compatible TTS API for Zonos")
 
+TRANSFORMER_REPO_ID = "Zyphra/Zonos-v0.1-transformer"
+HYBRID_REPO_ID = "Zyphra/Zonos-v0.1-hybrid"
+MODEL_SLOT_BY_ID = {
+    TRANSFORMER_REPO_ID: "transformer",
+    HYBRID_REPO_ID: "hybrid",
+}
+DEFAULT_MODEL_ID = TRANSFORMER_REPO_ID
+
 MODELS = {"transformer": None, "hybrid": None}
+HYBRID_SKIP_REASON: Optional[str] = None
 VOICE_STORAGE_DIR = os.environ.get("VOICE_STORAGE_DIR", "data/voice_storage")
 VOICE_METADATA_FILE = os.path.join(VOICE_STORAGE_DIR, "voice_metadata.json")
 VOICE_CACHE: Dict[str, torch.Tensor] = {}
@@ -50,6 +59,9 @@ os.makedirs(VOICE_STORAGE_DIR, exist_ok=True)
 
 def log_backend_versions() -> bool:
     """Log torch/mamba versions and report whether the hybrid stack is usable."""
+    global HYBRID_SKIP_REASON
+
+    HYBRID_SKIP_REASON = None
     cuda_version = torch.version.cuda or "cpu-only"
     logger.info(
         "Torch %s (CUDA %s, available=%s)",
@@ -71,6 +83,7 @@ def log_backend_versions() -> bool:
         logger.info("mamba-ssm %s import OK", getattr(mamba_ssm, "__version__", "unknown"))
         return True
     except Exception:
+        HYBRID_SKIP_REASON = "mamba-ssm import failed"
         logger.warning(
             "mamba-ssm import failed; the hybrid checkpoint will be skipped.\n%s",
             traceback.format_exc(),
@@ -82,12 +95,13 @@ def log_backend_versions() -> bool:
 # //////////////////////////////////////////////////////////////////////////////////////
 
 def load_models(skip_hybrid: bool = False):
+    global HYBRID_SKIP_REASON
     logger.info("Loading Zonos models into VRAM...")
     device = "cuda" if torch.cuda.is_available() else "cpu"
 
     try:
         MODELS["transformer"] = (
-            Zonos.from_pretrained("Zyphra/Zonos-v0.1-transformer", device=device)
+            Zonos.from_pretrained(TRANSFORMER_REPO_ID, device=device, backbone="torch")
             .eval()
             .requires_grad_(False)
         )
@@ -97,19 +111,25 @@ def load_models(skip_hybrid: bool = False):
         return
 
     if skip_hybrid:
-        logger.warning("Skipping hybrid checkpoint load because mamba-ssm is unavailable.")
+        if HYBRID_SKIP_REASON is None:
+            HYBRID_SKIP_REASON = "skipped by configuration"
+        logger.warning(
+            "Skipping hybrid checkpoint load because mamba-ssm is unavailable (%s).",
+            HYBRID_SKIP_REASON,
+        )
         MODELS["hybrid"] = None
         return
 
     try:
         MODELS["hybrid"] = (
-            Zonos.from_pretrained("Zyphra/Zonos-v0.1-hybrid", device=device)
+            Zonos.from_pretrained(HYBRID_REPO_ID, device=device, backbone="mamba_ssm")
             .eval()
             .requires_grad_(False)
         )
         logger.info("Hybrid checkpoint loaded on %s.", device)
     except Exception:
         MODELS["hybrid"] = None
+        HYBRID_SKIP_REASON = "hybrid checkpoint load failure"
         logger.warning(
             "Hybrid checkpoint unavailable; requests will fall back to the transformer model.\n%s",
             traceback.format_exc(),
@@ -172,7 +192,7 @@ def get_voice_embedding(voice_identifier):
 # //////////////////////////////////////////////////////////////////////////////////////
 
 class SpeechRequest(BaseModel):
-    model: str = Field("Zyphra/Zonos-v0.1-transformer")
+    model: str = Field(DEFAULT_MODEL_ID)
     input: str = Field(..., max_length=500)
     voice: Optional[str] = None
     speed: float = Field(1.0, ge=0.5, le=2.0)
@@ -205,12 +225,24 @@ class VoiceListResponse(BaseModel):
 @app.post("/v1/audio/speech")
 async def create_speech(request: SpeechRequest):
     try:
-        requested_key = "transformer" if "transformer" in request.model else "hybrid"
+        requested_key = MODEL_SLOT_BY_ID.get(request.model)
+        if requested_key is None:
+            requested_key = "transformer" if "transformer" in request.model else "hybrid"
+            if requested_key == "hybrid":
+                logger.warning(
+                    "Unknown model id '%s'; defaulting to hybrid slot", request.model
+                )
+            else:
+                logger.warning(
+                    "Unknown model id '%s'; defaulting to transformer weights", request.model
+                )
         model = MODELS.get(requested_key)
 
         if model is None and requested_key == "hybrid":
+            reason = HYBRID_SKIP_REASON or "hybrid weights not loaded"
             logger.warning(
-                "Hybrid model requested but not available; falling back to transformer weights."
+                "Hybrid model requested but not available (%s); falling back to transformer weights.",
+                reason,
             )
             model = MODELS.get("transformer")
 
@@ -338,22 +370,21 @@ async def list_voices():
 
 @app.get("/v1/audio/models")
 async def list_models():
-    return {
-        "models": [
-            {
-                "id": "Zyphra/Zonos-v0.1-transformer",
-                "created": 1234567890,
-                "object": "model",
-                "owned_by": "zyphra"
-            },
-            {
-                "id": "Zyphra/Zonos-v0.1-hybrid",
-                "created": 1234567890,
-                "object": "model",
-                "owned_by": "zyphra"
-            }
-        ]
-    }
+    models = []
+    for repo_id, slot in MODEL_SLOT_BY_ID.items():
+        ready = MODELS.get(slot) is not None
+        entry = {
+            "id": repo_id,
+            "created": 1234567890,
+            "object": "model",
+            "owned_by": "zyphra",
+            "ready": ready,
+        }
+        if slot == "hybrid" and not ready and HYBRID_SKIP_REASON:
+            entry["note"] = HYBRID_SKIP_REASON
+        models.append(entry)
+
+    return {"models": models}
 
 @app.on_event("startup")
 async def startup_event():
