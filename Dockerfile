@@ -36,11 +36,11 @@ RUN --mount=type=cache,target=/var/cache/apt,id=apt-cache-zonos-builder \
     # Ensure required dir exists (can be missing in slim images).
     mkdir -p /var/lib/apt/lists/partial; \
     \
-    # Update with retries for transient network issues.
-    apt-get -o Acquire::Retries=3 update; \
+    # Update with retries (quiet mode) for transient network issues.
+    apt-get -o Acquire::Retries=3 -y -q update; \
     \
-    # Install minimal deps without recommendations.
-    apt-get install -y --no-install-recommends \
+    # Install minimal deps quietly without recommendations.
+    apt-get install -y -q --no-install-recommends \
       build-essential \
       ninja-build \
       git; \
@@ -49,7 +49,8 @@ RUN --mount=type=cache,target=/var/cache/apt,id=apt-cache-zonos-builder \
     apt-get clean; \
     rm -rf /var/lib/apt/lists/*
 
-RUN pip install --upgrade pip setuptools wheel
+RUN --mount=type=cache,target=/root/.cache/pip,id=pip-cache-zonos-builder \
+    pip install --upgrade pip setuptools wheel
 
 RUN PIP_INDEX_URL=${TORCH_CUDA_INDEX_URL} \
     pip install --no-cache-dir \
@@ -114,11 +115,11 @@ RUN --mount=type=cache,target=/var/cache/apt,id=apt-cache-zonos-base \
     # Ensure required dir exists (can be missing in slim images).
     mkdir -p /var/lib/apt/lists/partial; \
     \
-    # Update with retries for transient network issues.
-    apt-get -o Acquire::Retries=3 update; \
+    # Update with retries (quiet mode) for transient network issues.
+    apt-get -o Acquire::Retries=3 -y -q update; \
     \
-    # Install runtime deps without recommendations.
-    apt-get install -y --no-install-recommends \
+    # Install runtime deps quietly without recommendations.
+    apt-get install -y -q --no-install-recommends \
       espeak-ng \
       ffmpeg \
       libsndfile1 \
@@ -129,7 +130,8 @@ RUN --mount=type=cache,target=/var/cache/apt,id=apt-cache-zonos-base \
     apt-get clean; \
     rm -rf /var/lib/apt/lists/*
 
-RUN pip install --upgrade pip setuptools wheel
+RUN --mount=type=cache,target=/root/.cache/pip,id=pip-cache-zonos-base \
+    pip install --upgrade pip setuptools wheel
 
 RUN PIP_INDEX_URL=${TORCH_CUDA_INDEX_URL} \
     pip install --no-cache-dir \
