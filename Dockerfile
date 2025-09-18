@@ -155,8 +155,10 @@ RUN pip install --no-cache-dir --no-index --find-links=/tmp/wheels \
     flash-attn==2.7.3 \
     causal-conv1d==1.5.0.post8
 
-RUN if [ "$WITH_TORCHVISION" = "1" ]; then \
-      pip install --no-cache-dir --no-index --find-links=/tmp/wheels torchvision==0.21.0+cu124 ; \
+RUN --mount=type=cache,target=/root/.cache/pip,id=pip-cache-zonos-base \
+    if [ "$WITH_TORCHVISION" = "1" ]; then \
+      pip install --no-index --find-links=/tmp/wheels \
+        torchvision==0.21.0+cu124; \
     fi
 RUN rm -rf /tmp/wheels || true
 
