@@ -30,6 +30,12 @@ RUN --mount=type=cache,target=/var/cache/apt,id=apt-cache-zonos-builder \
       /var/lib/dpkg/lock \
       /var/lib/apt/lists/lock; \
     \
+    # Heal any interrupted dpkg operations (ignore errors).
+    dpkg --configure -a || true; \
+    \
+    # Ensure required dir exists (can be missing in slim images).
+    mkdir -p /var/lib/apt/lists/partial; \
+    \
     # Update with retries for transient network issues.
     apt-get -o Acquire::Retries=3 update; \
     \
@@ -101,6 +107,12 @@ RUN --mount=type=cache,target=/var/cache/apt,id=apt-cache-zonos-base \
       /var/lib/dpkg/lock-frontend \
       /var/lib/dpkg/lock \
       /var/lib/apt/lists/lock; \
+    \
+    # Heal any interrupted dpkg operations (ignore errors).
+    dpkg --configure -a || true; \
+    \
+    # Ensure required dir exists (can be missing in slim images).
+    mkdir -p /var/lib/apt/lists/partial; \
     \
     # Update with retries for transient network issues.
     apt-get -o Acquire::Retries=3 update; \
