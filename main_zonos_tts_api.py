@@ -54,6 +54,20 @@ VOICE_STORAGE_DIR = os.environ.get("VOICE_STORAGE_DIR", "data/voice_storage")
 VOICE_METADATA_FILE = os.path.join(VOICE_STORAGE_DIR, "voice_metadata.json")
 VOICE_CACHE: Dict[str, torch.Tensor] = {}
 
+
+def _cuda_is_available() -> bool:
+    cuda_attr = getattr(torch, "cuda", None)
+    is_available = getattr(cuda_attr, "is_available", None)
+    if callable(is_available):
+        try:
+            return bool(is_available())
+        except Exception:
+            return False
+    return False
+
+
+DEVICE = "cuda" if _cuda_is_available() else "cpu"
+
 os.makedirs(VOICE_STORAGE_DIR, exist_ok=True)
 
 
@@ -62,12 +76,14 @@ def log_backend_versions() -> bool:
     global HYBRID_SKIP_REASON
 
     HYBRID_SKIP_REASON = None
-    cuda_version = torch.version.cuda or "cpu-only"
+    torch_version = getattr(torch, "__version__", "unknown")
+    cuda_version = getattr(getattr(torch, "version", None), "cuda", None) or "cpu-only"
+    cuda_available = _cuda_is_available()
     logger.info(
         "Torch %s (CUDA %s, available=%s)",
-        torch.__version__,
+        torch_version,
         cuda_version,
-        torch.cuda.is_available(),
+        cuda_available,
     )
 
     try:
@@ -97,7 +113,7 @@ def log_backend_versions() -> bool:
 def load_models(skip_hybrid: bool = False):
     global HYBRID_SKIP_REASON
     logger.info("Loading Zonos models into VRAM...")
-    device = "cuda" if torch.cuda.is_available() else "cpu"
+    device = DEVICE
 
     try:
         MODELS["transformer"] = (
@@ -157,7 +173,7 @@ def load_voice_embeddings():
         tensor_path = os.path.join(VOICE_STORAGE_DIR, f"{voice_id}.pt")
         try:
             if os.path.exists(tensor_path):
-                VOICE_CACHE[voice_id] = torch.load(tensor_path, map_location="cuda")
+                VOICE_CACHE[voice_id] = torch.load(tensor_path, map_location=DEVICE)
                 logger.info(f"Loaded voice: {info.get('name', voice_id)}")
         except Exception:
             logger.error("Error loading voice embedding %s:\n%s", voice_id, traceback.format_exc())
@@ -180,7 +196,7 @@ def get_voice_embedding(voice_identifier):
             tensor_path = os.path.join(VOICE_STORAGE_DIR, f"{voice_id}.pt")
             try:
                 if os.path.exists(tensor_path):
-                    embedding = torch.load(tensor_path, map_location="cuda")
+                    embedding = torch.load(tensor_path, map_location=DEVICE)
                     VOICE_CACHE[voice_id] = embedding
                     return embedding
             except Exception:
@@ -261,7 +277,7 @@ async def create_speech(request: SpeechRequest):
                 request.emotion.get("anger", 0.05),
                 request.emotion.get("other", 0.1),
                 request.emotion.get("neutral", 0.2),
-            ], device="cuda").unsqueeze(0)
+            ], device=DEVICE).unsqueeze(0)
 
         speaker_embedding = get_voice_embedding(request.voice) if request.voice else None
         if request.voice and speaker_embedding is None:
@@ -273,7 +289,7 @@ async def create_speech(request: SpeechRequest):
             "speaker": speaker_embedding,
             "emotion": emotion_tensor,
             "speaking_rate": request.speaking_rate if request.speaking_rate is not None else speaking_rate,
-            "device": "cuda",
+            "device": DEVICE,
             "unconditional_keys": [] if request.emotion else ["emotion"],
         }
         if request.pitch_std is not None:
@@ -339,9 +355,9 @@ async def create_voice(file: UploadFile = File(...), name: Optional[str] = Form(
 
         timestamp = int(time.time())
         voice_id = f"voice_{timestamp}_{uuid.uuid4().hex[:8]}"
-        VOICE_CACHE[voice_id] = speaker_embedding.to("cuda")
+        VOICE_CACHE[voice_id] = speaker_embedding.to(DEVICE)
 
-        if not save_voice_embedding(voice_id, speaker_embedding.to("cuda")):
+        if not save_voice_embedding(voice_id, speaker_embedding.to(DEVICE)):
             raise HTTPException(status_code=500, detail="Failed to save voice embedding")
 
         metadata = load_voice_metadata()

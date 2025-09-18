@@ -278,6 +278,11 @@ python -m pip install --no-build-isolation -r requirements/compile.txt
 # python -m pip install .[compile]
 ```
 
+On host installs these extensions compile locally and therefore require a matching CUDA toolkit, compiler, and headers.
+Inside the Docker images they are prebuilt as wheels during the builder stage, so the runtime layer ships without compilers.
+If you also need `torchvision`, enable the pinned build by passing `--build-arg WITH_TORCHVISION=1` (or install the
+`0.21.0+cu124` wheel from the same CUDA index when working on the host).
+
 ##### Quick environment diagnostic
 
 ```bash

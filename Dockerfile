@@ -6,7 +6,9 @@
 # Stage 0 — Build CUDA wheels against pinned torch
 # Update the digest with tools/docker/update_pytorch_digest.sh when refreshing the base image
 # ========================================================
+ARG WITH_TORCHVISION=0
 FROM pytorch/pytorch:2.6.0-cuda12.4-cudnn9-devel@sha256:0cf3402e946b7c384ba943ee05c90b4c5a4a05227923921f2b0918c011cfaf56 AS mamba-builder
+ARG WITH_TORCHVISION
 
 ENV DEBIAN_FRONTEND=noninteractive \
     TORCH_CUDA_INDEX_URL=https://download.pytorch.org/whl/cu124
@@ -44,10 +46,19 @@ RUN PIP_INDEX_URL=${TORCH_CUDA_INDEX_URL} \
     causal-conv1d==1.5.0.post8 \
     -w /tmp/wheels
 
+RUN if [ "$WITH_TORCHVISION" = "1" ]; then \
+      PIP_INDEX_URL=${TORCH_CUDA_INDEX_URL} \
+      pip wheel --no-cache-dir --no-binary=:all: \
+        -c constraints/torch-cu124-mamba.txt \
+        torchvision==0.21.0+cu124 \
+        -w /tmp/wheels ; \
+    fi
+
 # ========================================================
 # Stage 1 — Base layer with Python and system deps
 # ========================================================
 FROM pytorch/pytorch:2.6.0-cuda12.4-cudnn9-devel@sha256:0cf3402e946b7c384ba943ee05c90b4c5a4a05227923921f2b0918c011cfaf56 AS base
+ARG WITH_TORCHVISION
 
 ENV DEBIAN_FRONTEND=noninteractive \
     TORCH_CUDA_INDEX_URL=https://download.pytorch.org/whl/cu124
@@ -93,6 +104,10 @@ RUN pip install --no-cache-dir --no-index --find-links=/tmp/wheels \
     mamba-ssm==2.2.5 \
     flash-attn==2.7.3 \
     causal-conv1d==1.5.0.post8
+
+RUN if [ "$WITH_TORCHVISION" = "1" ]; then \
+      pip install --no-cache-dir --no-index --find-links=/tmp/wheels torchvision==0.21.0+cu124 ; \
+    fi
 
 COPY pyproject.toml ./
 COPY zonos ./zonos
