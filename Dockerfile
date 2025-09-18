@@ -21,8 +21,9 @@ WORKDIR /tmp/mamba
 COPY constraints/torch-cu124-mamba.txt ./constraints/torch-cu124-mamba.txt
 
 RUN --mount=type=cache,target=/var/cache/apt,id=apt-cache-zonos \
-    apt update && \
-    apt install -y --no-install-recommends \
+    rm -f /var/cache/apt/archives/lock /var/lib/dpkg/lock-frontend /var/lib/dpkg/lock /var/lib/apt/lists/lock && \
+    apt-get update && \
+    apt-get install -y --no-install-recommends \
         build-essential \
         ninja-build \
         git \
@@ -78,8 +79,9 @@ COPY constraints/torch-cu124-mamba.txt ./constraints/torch-cu124-mamba.txt
 COPY requirements ./requirements
 
 RUN --mount=type=cache,target=/var/cache/apt,id=apt-cache-zonos \
-    apt update && \
-    apt install -y --no-install-recommends \
+    rm -f /var/cache/apt/archives/lock /var/lib/dpkg/lock-frontend /var/lib/dpkg/lock /var/lib/apt/lists/lock && \
+    apt-get update && \
+    apt-get install -y --no-install-recommends \
         espeak-ng \
         ffmpeg \
         libsndfile1 \
