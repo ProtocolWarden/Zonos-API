@@ -64,7 +64,13 @@ PY
 
 RUN --mount=type=cache,target=/root/.cache/uv,id=uv-cache-zonos-builder-00-uv-install \
     curl -LsSf https://astral.sh/uv/install.sh | sh; \
-    ln -sf /root/.local/bin/uv /usr/local/bin/uv
+    ln -sf /root/.local/bin/uv /usr/local/bin/uv; \
+    \
+    # Remove curl now that uv is available in the builder.
+    apt-get purge -y curl; \
+    apt-get autoremove -y; \
+    apt-get clean; \
+    rm -rf /var/lib/apt/lists/*
 
 RUN --mount=type=cache,target=/root/.cache/uv,id=uv-cache-zonos-builder-01-torch \
     uv pip install --system --no-cache-dir \
@@ -172,7 +178,7 @@ RUN --mount=type=cache,target=/var/cache/apt,id=apt-cache-zonos-base-00-apt \
     apt-get clean; \
     rm -rf /var/lib/apt/lists/*
 
-RUN --mount=type=cache,target=/var/cache/apt,id=apt-cache-zonos-base-01-uvinstall \
+RUN --mount=type=cache,target=/var/cache/apt,id=apt-cache-zonos-base-01-uv-install \
     --mount=type=cache,target=/root/.cache/uv,id=uv-cache-zonos-base-00-uv-install \
     \
     # Remove any stale APT/DPKG locks (cache mount can retain these).
@@ -199,8 +205,8 @@ RUN --mount=type=cache,target=/var/cache/apt,id=apt-cache-zonos-base-01-uvinstal
     curl -LsSf https://astral.sh/uv/install.sh | sh; \
     ln -sf /root/.local/bin/uv /usr/local/bin/uv; \
     \
-    # Remove curl and tidy up so the runtime layer stays slim.
-    apt-get purge -y curl ca-certificates; \
+    # Remove curl (keep ca-certificates for TLS).
+    apt-get purge -y curl; \
     apt-get autoremove -y; \
     apt-get clean; \
     rm -rf /var/lib/apt/lists/*
