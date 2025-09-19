@@ -4,8 +4,8 @@
 
 # ========================================================
 # Stage 0 — Build CUDA wheels against pinned torch
-# MUST use the *devel* variant: this stage compiles CUDA/C++ extensions (nvcc, headers).
-# Update the digest with tools/docker/update_pytorch_digest.sh when refreshing the base image
+# MUST use the *devel* variant: compiles CUDA/C++ extensions (nvcc, headers).
+# Update digest with tools/docker/update_pytorch_digest.sh when refreshing base image
 # ========================================================
 ARG WITH_TORCHVISION=0
 FROM pytorch/pytorch:2.6.0-cuda12.4-cudnn9-devel@sha256:0cf3402e946b7c384ba943ee05c90b4c5a4a05227923921f2b0918c011cfaf56 AS mamba-builder
@@ -20,7 +20,8 @@ WORKDIR /tmp/mamba
 
 COPY constraints/torch-cu124-mamba.txt ./constraints/torch-cu124-mamba.txt
 
-RUN --mount=type=cache,target=/var/cache/apt,id=apt-cache-zonos-builder-00-apt \
+# --- APT bootstrap (build essentials, ninja, curl for uv installer) -----------
+RUN --mount=type=cache,target=/var/cache/apt,id=apt-cache-zonos-builder-01-apt \
     \
     # Remove any stale APT/DPKG locks (cache mount can retain these).
     rm -f \
@@ -49,7 +50,8 @@ RUN --mount=type=cache,target=/var/cache/apt,id=apt-cache-zonos-builder-00-apt \
     apt-get clean; \
     rm -rf /var/lib/apt/lists/*
 
-RUN --mount=type=cache,target=/root/.cache/toolchain-probe,id=uv-toolchain-probe \
+# --- Toolchain smoke test (nvcc/ninja present) --------------------------------
+RUN --mount=type=cache,target=/root/.cache/toolchain-probe,id=toolchain-cache-zonos-builder-02-probe \
     python - <<'PY'
 import shutil, sys
 
@@ -63,10 +65,10 @@ if not all(checks.values()):
     sys.exit(1)
 PY
 
-RUN --mount=type=cache,target=/root/.cache/uv,id=uv-cache-zonos-builder-00-uv-install \
-    # Pin uv installer to a known-good release for reproducibility.
-    export UV_INSTALLER_VERSION="0.4.0"; \
-    curl -LsSf https://astral.sh/uv/install.sh | sh; \
+# --- uv install (fast prebuilt installs). Wheels will be built with pip -------
+RUN --mount=type=cache,target=/root/.cache/uv,id=uv-cache-zonos-builder-03-install \
+    # Note: first -- ends sh options; second --version is passed to the installer
+    curl -LsSf https://astral.sh/uv/install.sh | sh -s -- --version 0.4.0; \
     ln -sf /root/.local/bin/uv /usr/local/bin/uv; \
     \
     # Remove curl now that uv is available in the builder.
@@ -75,7 +77,12 @@ RUN --mount=type=cache,target=/root/.cache/uv,id=uv-cache-zonos-builder-00-uv-in
     apt-get clean; \
     rm -rf /var/lib/apt/lists/*
 
-RUN --mount=type=cache,target=/root/.cache/uv,id=uv-cache-zonos-builder-01-torch \
+# --- pip bootstrap (for building wheels) --------------------------------------
+RUN --mount=type=cache,target=/root/.cache/pip,id=pip-cache-zonos-builder-04-bootstrap \
+    python -m pip install --upgrade pip setuptools wheel
+
+# --- Install pinned torch/torchaudio (prebuilt wheels via uv) -----------------
+RUN --mount=type=cache,target=/root/.cache/uv,id=uv-cache-zonos-builder-05-torch \
     uv pip install --system --no-cache-dir \
       -c constraints/torch-cu124-mamba.txt \
       --index-url ${TORCH_CUDA_INDEX_URL} \
@@ -83,12 +90,11 @@ RUN --mount=type=cache,target=/root/.cache/uv,id=uv-cache-zonos-builder-01-torch
       torch==2.6.0+cu124 \
       torchaudio==2.6.0+cu124
 
-# Deterministic local build of mamba-ssm. We disable build isolation so the
-# build uses the Torch we pinned earlier in this stage, and we force source
-# build to avoid any network wheel guessing.
-RUN --mount=type=cache,target=/root/.cache/uv,id=uv-cache-zonos-builder-02-mamba \
+# --- Build wheels (source builds with pip wheel) -------------------------------
+# mamba-ssm from source; reuse pinned Torch in this stage.
+RUN --mount=type=cache,target=/root/.cache/pip,id=pip-cache-zonos-builder-06-mamba \
     PIP_NO_BUILD_ISOLATION=1 MAMBA_FORCE_BUILD=TRUE \
-    uv pip wheel \
+    python -m pip wheel \
       -c constraints/torch-cu124-mamba.txt \
       --index-url ${TORCH_CUDA_INDEX_URL} \
       --extra-index-url ${PYPI_INDEX_URL} \
@@ -96,8 +102,8 @@ RUN --mount=type=cache,target=/root/.cache/uv,id=uv-cache-zonos-builder-02-mamba
       --wheel-dir /tmp/wheels \
       mamba-ssm==2.2.5
 
-RUN --mount=type=cache,target=/root/.cache/uv,id=uv-cache-zonos-builder-03-flashcausal \
-    uv pip wheel \
+RUN --mount=type=cache,target=/root/.cache/pip,id=pip-cache-zonos-builder-07-flashcausal \
+    python -m pip wheel \
       -c constraints/torch-cu124-mamba.txt \
       --index-url ${TORCH_CUDA_INDEX_URL} \
       --extra-index-url ${PYPI_INDEX_URL} \
@@ -106,9 +112,9 @@ RUN --mount=type=cache,target=/root/.cache/uv,id=uv-cache-zonos-builder-03-flash
       flash-attn==2.7.3 \
       causal-conv1d==1.5.0.post8
 
-RUN --mount=type=cache,target=/root/.cache/uv,id=uv-cache-zonos-builder-04-vision \
+RUN --mount=type=cache,target=/root/.cache/pip,id=pip-cache-zonos-builder-08-vision \
     if [ "$WITH_TORCHVISION" = "1" ]; then \
-      uv pip wheel \
+      python -m pip wheel \
         -c constraints/torch-cu124-mamba.txt \
         --index-url ${TORCH_CUDA_INDEX_URL} \
         --extra-index-url ${PYPI_INDEX_URL} \
@@ -137,7 +143,7 @@ WORKDIR /app
 COPY constraints/torch-cu124-mamba.txt ./constraints/torch-cu124-mamba.txt
 COPY requirements ./requirements
 
-RUN --mount=type=cache,target=/root/.cache/req-scan,id=uv-req-sanity \
+RUN --mount=type=cache,target=/root/.cache/req-scan,id=req-sanity-zonos-base-01-scan \
     python - <<'PY'
 from pathlib import Path
 import re
@@ -155,7 +161,7 @@ if suspicious:
 print('Requirements sanity: OK')
 PY
 
-RUN --mount=type=cache,target=/var/cache/apt,id=apt-cache-zonos-base-00-apt \
+RUN --mount=type=cache,target=/var/cache/apt,id=apt-cache-zonos-base-02-apt \
     \
     # Remove any stale APT/DPKG locks (cache mount can retain these).
     rm -f \
@@ -183,8 +189,8 @@ RUN --mount=type=cache,target=/var/cache/apt,id=apt-cache-zonos-base-00-apt \
     apt-get clean; \
     rm -rf /var/lib/apt/lists/*
 
-RUN --mount=type=cache,target=/var/cache/apt,id=apt-cache-zonos-base-01-uv-install \
-    --mount=type=cache,target=/root/.cache/uv,id=uv-cache-zonos-base-00-uv-install \
+RUN --mount=type=cache,target=/var/cache/apt,id=apt-cache-zonos-base-03-uv-install \
+    --mount=type=cache,target=/root/.cache/uv,id=uv-cache-zonos-base-04-uv-install \
     \
     # Remove any stale APT/DPKG locks (cache mount can retain these).
     rm -f \
@@ -208,8 +214,8 @@ RUN --mount=type=cache,target=/var/cache/apt,id=apt-cache-zonos-base-01-uv-insta
       ca-certificates; \
     \
     # Pin uv installer to a known-good release for reproducibility.
-    export UV_INSTALLER_VERSION="0.4.0"; \
-    curl -LsSf https://astral.sh/uv/install.sh | sh; \
+    # Note: first -- ends sh options; second --version is passed to the installer
+    curl -LsSf https://astral.sh/uv/install.sh | sh -s -- --version 0.4.0; \
     ln -sf /root/.local/bin/uv /usr/local/bin/uv; \
     \
     # Remove curl (keep ca-certificates for TLS).
@@ -218,7 +224,7 @@ RUN --mount=type=cache,target=/var/cache/apt,id=apt-cache-zonos-base-01-uv-insta
     apt-get clean; \
     rm -rf /var/lib/apt/lists/*
 
-RUN --mount=type=cache,target=/root/.cache/uv,id=uv-cache-zonos-base-01-torch \
+RUN --mount=type=cache,target=/root/.cache/uv,id=uv-cache-zonos-base-05-torch \
     uv pip install --system --no-cache-dir \
       -c constraints/torch-cu124-mamba.txt \
       --index-url ${TORCH_CUDA_INDEX_URL} \
@@ -234,17 +240,17 @@ print('Torch file:', getattr(torch, '__file__', '<missing>'))
 print('Python prefix:', sys.prefix)
 PY
 
-RUN --mount=type=cache,target=/root/.cache/uv,id=uv-cache-zonos-base-02-reqs \
+RUN --mount=type=cache,target=/root/.cache/uv,id=uv-cache-zonos-base-06-reqs \
     uv pip install --system --no-cache-dir -r requirements/runtime.txt
 
 COPY --from=mamba-builder /tmp/wheels /tmp/wheels
-RUN --mount=type=cache,target=/root/.cache/uv,id=uv-cache-zonos-base-03-localwheels \
+RUN --mount=type=cache,target=/root/.cache/uv,id=uv-cache-zonos-base-07-localwheels \
     uv pip install --system --no-cache-dir --no-index --find-links=/tmp/wheels \
       mamba-ssm==2.2.5 \
       flash-attn==2.7.3 \
       causal-conv1d==1.5.0.post8
 
-RUN --mount=type=cache,target=/root/.cache/uv,id=uv-cache-zonos-base-04-vision \
+RUN --mount=type=cache,target=/root/.cache/uv,id=uv-cache-zonos-base-08-vision \
     if [ "$WITH_TORCHVISION" = "1" ]; then \
       uv pip install --system --no-cache-dir --no-index --find-links=/tmp/wheels \
         torchvision==0.21.0+cu124; \
@@ -252,7 +258,7 @@ RUN --mount=type=cache,target=/root/.cache/uv,id=uv-cache-zonos-base-04-vision \
 RUN rm -rf /tmp/wheels || true
 
 COPY pyproject.toml ./
-RUN --mount=type=cache,target=/root/.cache/vcs-scan,id=uv-vcs-sanity \
+RUN --mount=type=cache,target=/root/.cache/vcs-scan,id=vcs-sanity-zonos-base-09-scan \
     python - <<'PY'
 from pathlib import Path
 import re
@@ -303,7 +309,7 @@ if suspicious:
 print('Editable install sanity: OK')
 PY
 COPY zonos ./zonos
-RUN --mount=type=cache,target=/root/.cache/uv,id=uv-cache-zonos-base-05-editable \
+RUN --mount=type=cache,target=/root/.cache/uv,id=uv-cache-zonos-base-10-editable \
     uv pip install --system --no-cache-dir --no-deps -e .
 
 RUN python - <<'PY'
