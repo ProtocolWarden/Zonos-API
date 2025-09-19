@@ -60,7 +60,10 @@ RUN PIP_INDEX_URL=${TORCH_CUDA_INDEX_URL} \
     torch==2.6.0+cu124 \
     torchaudio==2.6.0+cu124
 
-RUN PIP_INDEX_URL=${TORCH_CUDA_INDEX_URL} \
+# Force mamba-ssm to compile locally instead of downloading prebuilt wheels.
+RUN \
+    MAMBA_FORCE_BUILD=TRUE \
+    PIP_INDEX_URL=${TORCH_CUDA_INDEX_URL} \
     PIP_EXTRA_INDEX_URL=${PYPI_INDEX_URL} \
     pip wheel --no-cache-dir --no-binary=mamba-ssm \
     -c constraints/torch-cu124-mamba.txt \
