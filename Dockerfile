@@ -118,15 +118,14 @@ RUN --mount=type=cache,target=/root/.cache/pip,id=pip-cache-zonos-builder-07-fla
 
 RUN --mount=type=cache,target=/root/.cache/pip,id=pip-cache-zonos-builder-08-vision \
     if [ "$WITH_TORCHVISION" = "1" ]; then \
-      PIP_NO_BUILD_ISOLATION=1 \
-      python -m pip wheel \
+      PIP_NO_BUILD_ISOLATION=1 python -m pip wheel \
         --no-deps \
         -c constraints/torch-cu124-mamba.txt \
         --index-url ${TORCH_CUDA_INDEX_URL} \
         --extra-index-url ${PYPI_INDEX_URL} \
         --no-binary=:all: \
         --wheel-dir /tmp/wheels \
-        torchvision==0.21.0+cu124 ; \
+        torchvision==0.21.0+cu124; \
     fi
 
 # ========================================================
