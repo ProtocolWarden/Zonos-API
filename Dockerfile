@@ -48,7 +48,8 @@ RUN --mount=type=cache,target=/var/cache/apt,id=apt-cache-zonos-builder \
     apt-get clean; \
     rm -rf /var/lib/apt/lists/*
 
-RUN python - <<'PY'
+RUN --mount=type=cache,target=/root/.cache/toolchain-probe,id=uv-toolchain-probe \
+    python - <<'PY'
 import shutil, sys
 
 checks = {
@@ -126,6 +127,24 @@ WORKDIR /app
 COPY constraints/torch-cu124-mamba.txt ./constraints/torch-cu124-mamba.txt
 COPY requirements ./requirements
 
+RUN --mount=type=cache,target=/root/.cache/req-scan,id=uv-req-sanity \
+    python - <<'PY'
+from pathlib import Path
+import re
+import sys
+
+text = Path('requirements/runtime.txt').read_text()
+pattern = re.compile(r"(git\+|git@|vcs)")
+
+suspicious = [line.strip() for line in text.splitlines() if pattern.search(line.lower())]
+
+if suspicious:
+    print('VCS-like deps in requirements/runtime.txt:', suspicious)
+    sys.exit(1)
+
+print('Requirements sanity: OK')
+PY
+
 RUN --mount=type=cache,target=/var/cache/apt,id=apt-cache-zonos-base \
     set -eux; \
     \
@@ -194,7 +213,8 @@ RUN --mount=type=cache,target=/root/.cache/uv,id=uv-cache-zonos-base \
 RUN rm -rf /tmp/wheels || true
 
 COPY pyproject.toml ./
-RUN python - <<'PY'
+RUN --mount=type=cache,target=/root/.cache/vcs-scan,id=uv-vcs-sanity \
+    python - <<'PY'
 from pathlib import Path
 import re
 import sys
