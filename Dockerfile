@@ -6,10 +6,10 @@
 # Stage 0 — Build CUDA wheels against pinned torch
 # Update the digest with tools/docker/update_pytorch_digest.sh when refreshing the base image
 # ========================================================
-SHELL ["/bin/bash", "-euxo", "pipefail", "-c"]
 ARG WITH_TORCHVISION=0
 FROM pytorch/pytorch:2.6.0-cuda12.4-cudnn9-devel@sha256:0cf3402e946b7c384ba943ee05c90b4c5a4a05227923921f2b0918c011cfaf56 AS mamba-builder
 ARG WITH_TORCHVISION
+SHELL ["/bin/bash", "-euxo", "pipefail", "-c"]
 
 ENV DEBIAN_FRONTEND=noninteractive \
     TORCH_CUDA_INDEX_URL=https://download.pytorch.org/whl/cu124 \
@@ -121,6 +121,7 @@ RUN --mount=type=cache,target=/root/.cache/uv,id=uv-cache-zonos-builder-04-visio
 # ========================================================
 FROM pytorch/pytorch:2.6.0-cuda12.4-cudnn9-runtime@sha256:77f17f843507062875ce8be2a6f76aa6aa3df7f9ef1e31d9d7432f4b0f563dee AS base
 ARG WITH_TORCHVISION
+SHELL ["/bin/bash", "-euxo", "pipefail", "-c"]
 
 ENV DEBIAN_FRONTEND=noninteractive \
     TORCH_CUDA_INDEX_URL=https://download.pytorch.org/whl/cu124 \
@@ -330,6 +331,7 @@ PY
 # Stage 2 — Runtime layer
 # ========================================================
 FROM base AS runtime
+SHELL ["/bin/bash", "-euxo", "pipefail", "-c"]
 
 WORKDIR /app
 COPY . ./
