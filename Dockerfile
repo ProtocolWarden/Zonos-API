@@ -20,7 +20,7 @@ WORKDIR /tmp/mamba
 
 COPY constraints/torch-cu124-mamba.txt ./constraints/torch-cu124-mamba.txt
 # --- APT bootstrap (build essentials, ninja, curl for uv installer) -----------
-RUN --mount=type=cache,target=/var/cache/apt,id=apt-cache-zonos-builder-10-apt \
+RUN --mount=type=cache,target=/var/cache/apt,id=apt-cache-zonos-builder-01-apt \
     \
     # Remove any stale APT/DPKG locks (cache mount can retain these).
     rm -f \
@@ -50,7 +50,7 @@ RUN --mount=type=cache,target=/var/cache/apt,id=apt-cache-zonos-builder-10-apt \
     rm -rf /var/lib/apt/lists/*
 
 # --- Toolchain smoke test (nvcc/ninja present) --------------------------------
-RUN --mount=type=cache,target=/root/.cache/toolchain-probe,id=toolchain-probe-zonos-builder-10 \
+RUN --mount=type=cache,target=/root/.cache/toolchain-probe,id=toolchain-probe-zonos-builder-02 \
     python - <<'PY'
 import shutil, sys
 
@@ -65,7 +65,7 @@ if not all(checks.values()):
 PY
 
 # --- uv install (fast prebuilt installs). Wheels will be built with pip -------
-RUN --mount=type=cache,target=/root/.cache/uv,id=uv-cache-zonos-builder-20-install \
+RUN --mount=type=cache,target=/root/.cache/uv,id=uv-cache-zonos-builder-03-install \
     export UV_INSTALLER_VERSION="0.4.0"; \
     curl -LsSf https://astral.sh/uv/install.sh | sh; \
     ln -sf /root/.local/bin/uv /usr/local/bin/uv; \
@@ -77,11 +77,11 @@ RUN --mount=type=cache,target=/root/.cache/uv,id=uv-cache-zonos-builder-20-insta
     rm -rf /var/lib/apt/lists/*
 
 # --- pip bootstrap (for building wheels) --------------------------------------
-RUN --mount=type=cache,target=/root/.cache/pip,id=pip-cache-zonos-builder-20-bootstrap \
+RUN --mount=type=cache,target=/root/.cache/pip,id=pip-cache-zonos-builder-04-bootstrap \
     python -m pip install --upgrade pip setuptools wheel
 
 # --- Install pinned torch/torchaudio (prebuilt wheels via uv) -----------------
-RUN --mount=type=cache,target=/root/.cache/uv,id=uv-cache-zonos-builder-30-torch \
+RUN --mount=type=cache,target=/root/.cache/uv,id=uv-cache-zonos-builder-05-torch \
     uv pip install --system --no-cache-dir \
       -c constraints/torch-cu124-mamba.txt \
       --index-url ${TORCH_CUDA_INDEX_URL} \
@@ -91,7 +91,7 @@ RUN --mount=type=cache,target=/root/.cache/uv,id=uv-cache-zonos-builder-30-torch
 
 # --- Build wheels (source builds with pip wheel) -------------------------------
 # mamba-ssm from source; reuse pinned Torch in this stage.
-RUN --mount=type=cache,target=/root/.cache/pip,id=pip-cache-zonos-builder-40-mamba \
+RUN --mount=type=cache,target=/root/.cache/pip,id=pip-cache-zonos-builder-06-mamba \
     PIP_NO_BUILD_ISOLATION=1 MAMBA_FORCE_BUILD=TRUE \
     python -m pip wheel \
       -c constraints/torch-cu124-mamba.txt \
@@ -101,7 +101,7 @@ RUN --mount=type=cache,target=/root/.cache/pip,id=pip-cache-zonos-builder-40-mam
       --wheel-dir /tmp/wheels \
       mamba-ssm==2.2.5
 
-RUN --mount=type=cache,target=/root/.cache/pip,id=pip-cache-zonos-builder-50-flashcausal \
+RUN --mount=type=cache,target=/root/.cache/pip,id=pip-cache-zonos-builder-07-flashcausal \
     python -m pip wheel \
       -c constraints/torch-cu124-mamba.txt \
       --index-url ${TORCH_CUDA_INDEX_URL} \
@@ -111,7 +111,7 @@ RUN --mount=type=cache,target=/root/.cache/pip,id=pip-cache-zonos-builder-50-fla
       flash-attn==2.7.3 \
       causal-conv1d==1.5.0.post8
 
-RUN --mount=type=cache,target=/root/.cache/pip,id=pip-cache-zonos-builder-60-vision \
+RUN --mount=type=cache,target=/root/.cache/pip,id=pip-cache-zonos-builder-08-vision \
     if [ "$WITH_TORCHVISION" = "1" ]; then \
       python -m pip wheel \
         -c constraints/torch-cu124-mamba.txt \
