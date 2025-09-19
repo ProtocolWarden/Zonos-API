@@ -20,6 +20,7 @@ ENV DEBIAN_FRONTEND=noninteractive \
 WORKDIR /tmp/mamba
 
 COPY constraints/torch-cu124-mamba.txt ./constraints/torch-cu124-mamba.txt
+COPY tools/docker/fetch_mamba_wheel.py ./tools/docker/fetch_mamba_wheel.py
 
 RUN --mount=type=cache,target=/var/cache/apt,id=apt-cache-zonos-builder \
     set -eux; \
@@ -60,12 +61,7 @@ RUN PIP_INDEX_URL=${TORCH_CUDA_INDEX_URL} \
     torch==2.6.0+cu124 \
     torchaudio==2.6.0+cu124
 
-RUN PIP_INDEX_URL=${TORCH_CUDA_INDEX_URL} \
-    PIP_EXTRA_INDEX_URL=${PYPI_INDEX_URL} \
-    pip wheel --no-cache-dir --no-binary=mamba-ssm \
-    -c constraints/torch-cu124-mamba.txt \
-    mamba-ssm==2.2.5 \
-    -w /tmp/wheels
+RUN python tools/docker/fetch_mamba_wheel.py --output /tmp/wheels
 
 RUN PIP_INDEX_URL=${TORCH_CUDA_INDEX_URL} \
     PIP_EXTRA_INDEX_URL=${PYPI_INDEX_URL} \
