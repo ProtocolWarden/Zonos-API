@@ -49,32 +49,21 @@ RUN --mount=type=cache,target=/var/cache/apt,id=apt-cache-zonos-builder \
     rm -rf /var/lib/apt/lists/*
 
 RUN python - <<'PY'
-import shutil
-import subprocess
-import sys
+import shutil, sys
 
 checks = {
     'nvcc': shutil.which('nvcc') is not None,
     'ninja': shutil.which('ninja') is not None,
 }
 
-if checks['nvcc']:
-    result = subprocess.run(['nvcc', '--version'], capture_output=True)
-    checks['cuda_home'] = result.returncode == 0
-else:
-    checks['cuda_home'] = False
-
 print('Toolchain:', checks)
-
 if not all(checks.values()):
     sys.exit(1)
 PY
 
 RUN --mount=type=cache,target=/root/.cache/uv,id=uv-cache-zonos-builder \
     set -eux; \
-    curl -LsSf https://astral.sh/uv/install.sh -o /tmp/uv-installer.sh; \
-    sh /tmp/uv-installer.sh; \
-    rm -f /tmp/uv-installer.sh; \
+    curl -LsSf https://astral.sh/uv/install.sh | sh; \
     ln -sf /root/.local/bin/uv /usr/local/bin/uv
 
 RUN --mount=type=cache,target=/root/.cache/uv,id=uv-cache-zonos-builder \
@@ -160,8 +149,7 @@ RUN --mount=type=cache,target=/var/cache/apt,id=apt-cache-zonos-base \
     apt-get install -y -q --no-install-recommends \
       espeak-ng \
       ffmpeg \
-      libsndfile1 \
-      curl; \
+      libsndfile1; \
     \
     # Clean package lists and cache to minimize layers.
     apt-get clean; \
@@ -169,9 +157,7 @@ RUN --mount=type=cache,target=/var/cache/apt,id=apt-cache-zonos-base \
 
 RUN --mount=type=cache,target=/root/.cache/uv,id=uv-cache-zonos-base \
     set -eux; \
-    curl -LsSf https://astral.sh/uv/install.sh -o /tmp/uv-installer.sh; \
-    sh /tmp/uv-installer.sh; \
-    rm -f /tmp/uv-installer.sh; \
+    curl -LsSf https://astral.sh/uv/install.sh | sh; \
     ln -sf /root/.local/bin/uv /usr/local/bin/uv
 
 RUN --mount=type=cache,target=/root/.cache/uv,id=uv-cache-zonos-base \
