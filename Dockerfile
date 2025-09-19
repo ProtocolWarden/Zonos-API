@@ -63,6 +63,8 @@ if not all(checks.values()):
 PY
 
 RUN --mount=type=cache,target=/root/.cache/uv,id=uv-cache-zonos-builder-00-uv-install \
+    # Pin uv installer to a known-good release for reproducibility.
+    export UV_INSTALLER_VERSION="0.4.0"; \
     curl -LsSf https://astral.sh/uv/install.sh | sh; \
     ln -sf /root/.local/bin/uv /usr/local/bin/uv; \
     \
@@ -202,6 +204,8 @@ RUN --mount=type=cache,target=/var/cache/apt,id=apt-cache-zonos-base-01-uv-insta
       curl \
       ca-certificates; \
     \
+    # Pin uv installer to a known-good release for reproducibility.
+    export UV_INSTALLER_VERSION="0.4.0"; \
     curl -LsSf https://astral.sh/uv/install.sh | sh; \
     ln -sf /root/.local/bin/uv /usr/local/bin/uv; \
     \
