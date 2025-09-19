@@ -4,6 +4,7 @@
 
 # ========================================================
 # Stage 0 — Build CUDA wheels against pinned torch
+# MUST use the *devel* variant: this stage compiles CUDA/C++ extensions (nvcc, headers).
 # Update the digest with tools/docker/update_pytorch_digest.sh when refreshing the base image
 # ========================================================
 ARG WITH_TORCHVISION=0
@@ -118,6 +119,7 @@ RUN --mount=type=cache,target=/root/.cache/uv,id=uv-cache-zonos-builder-04-visio
 
 # ========================================================
 # Stage 1 — Base layer with Python and system deps (slimmer runtime)
+# MUST use the *runtime* variant: only needs shared libs to import wheels.
 # ========================================================
 FROM pytorch/pytorch:2.6.0-cuda12.4-cudnn9-runtime@sha256:77f17f843507062875ce8be2a6f76aa6aa3df7f9ef1e31d9d7432f4b0f563dee AS base
 ARG WITH_TORCHVISION
