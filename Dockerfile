@@ -132,7 +132,8 @@ RUN --mount=type=cache,target=/root/.cache/pip,id=pip-cache-zonos-builder-08-vis
 # Stage 1 — Base layer with Python and system deps (slimmer runtime)
 # MUST use the *runtime* variant: only needs shared libs to import wheels.
 # ========================================================
-FROM pytorch/pytorch:2.6.0-cuda12.4-cudnn9-runtime@sha256:77f17f843507062875ce8be2a6f76aa6aa3df7f9ef1e31d9d7432f4b0f563dee AS base
+#FROM pytorch/pytorch:2.6.0-cuda12.4-cudnn9-runtime@sha256:77f17f843507062875ce8be2a6f76aa6aa3df7f9ef1e31d9d7432f4b0f563dee AS base
+FROM pytorch/pytorch:2.6.0-cuda12.4-cudnn9-devel@sha256:0cf3402e946b7c384ba943ee05c90b4c5a4a05227923921f2b0918c011cfaf56 AS base
 ARG WITH_TORCHVISION
 SHELL ["/bin/bash", "-euxo", "pipefail", "-c"]
 
