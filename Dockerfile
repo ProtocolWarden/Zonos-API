@@ -62,12 +62,12 @@ if not all(checks.values()):
     sys.exit(1)
 PY
 
-RUN --mount=type=cache,target=/root/.cache/uv,id=uv-cache-zonos-builder \
+RUN --mount=type=cache,target=/root/.cache/uv,id=uv-cache-zonos-builder-00-uv-install \
     set -eux; \
     curl -LsSf https://astral.sh/uv/install.sh | sh; \
     ln -sf /root/.local/bin/uv /usr/local/bin/uv
 
-RUN --mount=type=cache,target=/root/.cache/uv,id=uv-cache-zonos-builder \
+RUN --mount=type=cache,target=/root/.cache/uv,id=uv-cache-zonos-builder-01-torch \
     uv pip install --system --no-cache-dir \
       -c constraints/torch-cu124-mamba.txt \
       --index-url ${TORCH_CUDA_INDEX_URL} \
@@ -78,7 +78,7 @@ RUN --mount=type=cache,target=/root/.cache/uv,id=uv-cache-zonos-builder \
 # Deterministic local build of mamba-ssm. We disable build isolation so the
 # build uses the Torch we pinned earlier in this stage, and we force source
 # build to avoid any network wheel guessing.
-RUN --mount=type=cache,target=/root/.cache/uv,id=uv-cache-zonos-builder \
+RUN --mount=type=cache,target=/root/.cache/uv,id=uv-cache-zonos-builder-02-mamba \
     PIP_NO_BUILD_ISOLATION=1 MAMBA_FORCE_BUILD=TRUE \
     uv pip wheel \
       -c constraints/torch-cu124-mamba.txt \
@@ -88,7 +88,7 @@ RUN --mount=type=cache,target=/root/.cache/uv,id=uv-cache-zonos-builder \
       --wheel-dir /tmp/wheels \
       mamba-ssm==2.2.5
 
-RUN --mount=type=cache,target=/root/.cache/uv,id=uv-cache-zonos-builder \
+RUN --mount=type=cache,target=/root/.cache/uv,id=uv-cache-zonos-builder-03-flashcausal \
     uv pip wheel \
       -c constraints/torch-cu124-mamba.txt \
       --index-url ${TORCH_CUDA_INDEX_URL} \
@@ -98,7 +98,7 @@ RUN --mount=type=cache,target=/root/.cache/uv,id=uv-cache-zonos-builder \
       flash-attn==2.7.3 \
       causal-conv1d==1.5.0.post8
 
-RUN --mount=type=cache,target=/root/.cache/uv,id=uv-cache-zonos-builder \
+RUN --mount=type=cache,target=/root/.cache/uv,id=uv-cache-zonos-builder-04-vision \
     if [ "$WITH_TORCHVISION" = "1" ]; then \
       uv pip wheel \
         -c constraints/torch-cu124-mamba.txt \
@@ -174,12 +174,12 @@ RUN --mount=type=cache,target=/var/cache/apt,id=apt-cache-zonos-base \
     apt-get clean; \
     rm -rf /var/lib/apt/lists/*
 
-RUN --mount=type=cache,target=/root/.cache/uv,id=uv-cache-zonos-base \
+RUN --mount=type=cache,target=/root/.cache/uv,id=uv-cache-zonos-base-00-uv-install \
     set -eux; \
     curl -LsSf https://astral.sh/uv/install.sh | sh; \
     ln -sf /root/.local/bin/uv /usr/local/bin/uv
 
-RUN --mount=type=cache,target=/root/.cache/uv,id=uv-cache-zonos-base \
+RUN --mount=type=cache,target=/root/.cache/uv,id=uv-cache-zonos-base-01-torch \
     uv pip install --system --no-cache-dir \
       -c constraints/torch-cu124-mamba.txt \
       --index-url ${TORCH_CUDA_INDEX_URL} \
@@ -195,17 +195,17 @@ print('Torch file:', getattr(torch, '__file__', '<missing>'))
 print('Python prefix:', sys.prefix)
 PY
 
-RUN --mount=type=cache,target=/root/.cache/uv,id=uv-cache-zonos-base \
+RUN --mount=type=cache,target=/root/.cache/uv,id=uv-cache-zonos-base-02-reqs \
     uv pip install --system --no-cache-dir -r requirements/runtime.txt
 
 COPY --from=mamba-builder /tmp/wheels /tmp/wheels
-RUN --mount=type=cache,target=/root/.cache/uv,id=uv-cache-zonos-base \
+RUN --mount=type=cache,target=/root/.cache/uv,id=uv-cache-zonos-base-03-localwheels \
     uv pip install --system --no-cache-dir --no-index --find-links=/tmp/wheels \
       mamba-ssm==2.2.5 \
       flash-attn==2.7.3 \
       causal-conv1d==1.5.0.post8
 
-RUN --mount=type=cache,target=/root/.cache/uv,id=uv-cache-zonos-base \
+RUN --mount=type=cache,target=/root/.cache/uv,id=uv-cache-zonos-base-04-vision \
     if [ "$WITH_TORCHVISION" = "1" ]; then \
       uv pip install --system --no-cache-dir --no-index --find-links=/tmp/wheels \
         torchvision==0.21.0+cu124; \
@@ -264,7 +264,7 @@ if suspicious:
 print('Editable install sanity: OK')
 PY
 COPY zonos ./zonos
-RUN --mount=type=cache,target=/root/.cache/uv,id=uv-cache-zonos-base \
+RUN --mount=type=cache,target=/root/.cache/uv,id=uv-cache-zonos-base-05-editable \
     uv pip install --system --no-cache-dir --no-deps -e .
 
 RUN python - <<'PY'
