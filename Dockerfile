@@ -44,56 +44,63 @@ RUN --mount=type=cache,target=/var/cache/apt,id=apt-cache-zonos-builder \
     apt-get install -y -q --no-install-recommends \
       build-essential \
       ninja-build \
-      git; \
+      git \
+      curl; \
     \
     # Clean package lists and cache to minimize layers.
     apt-get clean; \
     rm -rf /var/lib/apt/lists/*
 
-RUN --mount=type=cache,target=/root/.cache/pip,id=pip-cache-zonos-builder \
-    pip install --upgrade pip setuptools wheel
+RUN --mount=type=cache,target=/root/.cache/uv,id=uv-cache-builder \
+    curl -LsSf https://astral.sh/uv/install.sh | sh && \
+    ln -sf /root/.local/bin/uv /usr/local/bin/uv
 
-RUN PIP_INDEX_URL=${TORCH_CUDA_INDEX_URL} \
-    PIP_EXTRA_INDEX_URL=${PYPI_INDEX_URL} \
-    pip install --no-cache-dir \
-    -c constraints/torch-cu124-mamba.txt \
-    torch==2.6.0+cu124 \
-    torchaudio==2.6.0+cu124
+RUN --mount=type=cache,target=/root/.cache/uv,id=uv-cache-builder \
+    uv pip install --system --no-cache-dir \
+      -c constraints/torch-cu124-mamba.txt \
+      --index-url ${TORCH_CUDA_INDEX_URL} \
+      --extra-index-url ${PYPI_INDEX_URL} \
+      torch==2.6.0+cu124 \
+      torchaudio==2.6.0+cu124
 
 # Deterministic local build of mamba-ssm. We disable build isolation so the
 # build uses the Torch we pinned earlier in this stage, and we force source
 # build to avoid any network wheel guessing.
-RUN \
-    PIP_NO_BUILD_ISOLATION=1 \
-    MAMBA_FORCE_BUILD=TRUE \
-    PIP_INDEX_URL=${TORCH_CUDA_INDEX_URL} \
-    PIP_EXTRA_INDEX_URL=${PYPI_INDEX_URL} \
-    pip wheel --no-cache-dir --no-binary=mamba-ssm \
-    -c constraints/torch-cu124-mamba.txt \
-    mamba-ssm==2.2.5 \
-    -w /tmp/wheels
+RUN --mount=type=cache,target=/root/.cache/uv,id=uv-cache-builder \
+    PIP_NO_BUILD_ISOLATION=1 MAMBA_FORCE_BUILD=TRUE \
+    uv pip wheel \
+      -c constraints/torch-cu124-mamba.txt \
+      --index-url ${TORCH_CUDA_INDEX_URL} \
+      --extra-index-url ${PYPI_INDEX_URL} \
+      --no-binary=mamba-ssm \
+      --wheel-dir /tmp/wheels \
+      mamba-ssm==2.2.5
 
-RUN PIP_INDEX_URL=${TORCH_CUDA_INDEX_URL} \
-    PIP_EXTRA_INDEX_URL=${PYPI_INDEX_URL} \
-    pip wheel --no-cache-dir --no-binary=:all: \
-    -c constraints/torch-cu124-mamba.txt \
-    flash-attn==2.7.3 \
-    causal-conv1d==1.5.0.post8 \
-    -w /tmp/wheels
+RUN --mount=type=cache,target=/root/.cache/uv,id=uv-cache-builder \
+    uv pip wheel \
+      -c constraints/torch-cu124-mamba.txt \
+      --index-url ${TORCH_CUDA_INDEX_URL} \
+      --extra-index-url ${PYPI_INDEX_URL} \
+      --no-binary=:all: \
+      --wheel-dir /tmp/wheels \
+      flash-attn==2.7.3 \
+      causal-conv1d==1.5.0.post8
 
-RUN if [ "$WITH_TORCHVISION" = "1" ]; then \
-      PIP_INDEX_URL=${TORCH_CUDA_INDEX_URL} \
-      PIP_EXTRA_INDEX_URL=${PYPI_INDEX_URL} \
-      pip wheel --no-cache-dir --no-binary=:all: \
+RUN --mount=type=cache,target=/root/.cache/uv,id=uv-cache-builder \
+    if [ "$WITH_TORCHVISION" = "1" ]; then \
+      uv pip wheel \
         -c constraints/torch-cu124-mamba.txt \
-        torchvision==0.21.0+cu124 \
-        -w /tmp/wheels ; \
+        --index-url ${TORCH_CUDA_INDEX_URL} \
+        --extra-index-url ${PYPI_INDEX_URL} \
+        --no-binary=:all: \
+        --wheel-dir /tmp/wheels \
+        torchvision==0.21.0+cu124 ; \
     fi
 
 # ========================================================
-# Stage 1 — Base layer with Python and system deps
+# Stage 1 — Base layer with Python and system deps (slimmer runtime)
 # ========================================================
-FROM pytorch/pytorch:2.6.0-cuda12.4-cudnn9-devel@sha256:0cf3402e946b7c384ba943ee05c90b4c5a4a05227923921f2b0918c011cfaf56 AS base
+FROM pytorch/pytorch:2.6.0-cuda12.4-cudnn9-runtime AS base
 ARG WITH_TORCHVISION
 
 ENV DEBIAN_FRONTEND=noninteractive \
@@ -135,22 +142,23 @@ RUN --mount=type=cache,target=/var/cache/apt,id=apt-cache-zonos-base \
       espeak-ng \
       ffmpeg \
       libsndfile1 \
-      curl \
-      git; \
+      curl; \
     \
     # Clean package lists and cache to minimize layers.
     apt-get clean; \
     rm -rf /var/lib/apt/lists/*
 
-RUN --mount=type=cache,target=/root/.cache/pip,id=pip-cache-zonos-base \
-    pip install --upgrade pip setuptools wheel
+RUN --mount=type=cache,target=/root/.cache/uv,id=uv-cache-base \
+    curl -LsSf https://astral.sh/uv/install.sh | sh && \
+    ln -sf /root/.local/bin/uv /usr/local/bin/uv
 
-RUN PIP_INDEX_URL=${TORCH_CUDA_INDEX_URL} \
-    PIP_EXTRA_INDEX_URL=${PYPI_INDEX_URL} \
-    pip install --no-cache-dir \
-    -c constraints/torch-cu124-mamba.txt \
-    torch==2.6.0+cu124 \
-    torchaudio==2.6.0+cu124
+RUN --mount=type=cache,target=/root/.cache/uv,id=uv-cache-base \
+    uv pip install --system --no-cache-dir \
+      -c constraints/torch-cu124-mamba.txt \
+      --index-url ${TORCH_CUDA_INDEX_URL} \
+      --extra-index-url ${PYPI_INDEX_URL} \
+      torch==2.6.0+cu124 \
+      torchaudio==2.6.0+cu124
 
 RUN python - <<'PY'
 import sys
@@ -160,24 +168,27 @@ print('Torch file:', getattr(torch, '__file__', '<missing>'))
 print('Python prefix:', sys.prefix)
 PY
 
-RUN pip install --no-cache-dir -r requirements/runtime.txt
+RUN --mount=type=cache,target=/root/.cache/uv,id=uv-cache-base \
+    uv pip install --system --no-cache-dir -r requirements/runtime.txt
 
 COPY --from=mamba-builder /tmp/wheels /tmp/wheels
-RUN pip install --no-cache-dir --no-index --find-links=/tmp/wheels \
-    mamba-ssm==2.2.5 \
-    flash-attn==2.7.3 \
-    causal-conv1d==1.5.0.post8
+RUN --mount=type=cache,target=/root/.cache/uv,id=uv-cache-base \
+    uv pip install --system --no-cache-dir --no-index --find-links=/tmp/wheels \
+      mamba-ssm==2.2.5 \
+      flash-attn==2.7.3 \
+      causal-conv1d==1.5.0.post8
 
-RUN --mount=type=cache,target=/root/.cache/pip,id=pip-cache-zonos-base \
+RUN --mount=type=cache,target=/root/.cache/uv,id=uv-cache-base \
     if [ "$WITH_TORCHVISION" = "1" ]; then \
-      pip install --no-index --find-links=/tmp/wheels \
+      uv pip install --system --no-cache-dir --no-index --find-links=/tmp/wheels \
         torchvision==0.21.0+cu124; \
     fi
 RUN rm -rf /tmp/wheels || true
 
 COPY pyproject.toml ./
 COPY zonos ./zonos
-RUN pip install --no-cache-dir --no-deps -e .
+RUN --mount=type=cache,target=/root/.cache/uv,id=uv-cache-base \
+    uv pip install --system --no-cache-dir --no-deps -e .
 
 RUN python - <<'PY'
 import sys
