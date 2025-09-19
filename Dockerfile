@@ -60,7 +60,13 @@ RUN PIP_INDEX_URL=${TORCH_CUDA_INDEX_URL} \
     torch==2.6.0+cu124 \
     torchaudio==2.6.0+cu124
 
-RUN PIP_INDEX_URL=${TORCH_CUDA_INDEX_URL} \
+# Deterministic local build of mamba-ssm. We disable build isolation so the
+# build uses the Torch we pinned earlier in this stage, and we force source
+# build to avoid any network wheel guessing.
+RUN \
+    PIP_NO_BUILD_ISOLATION=1 \
+    MAMBA_FORCE_BUILD=TRUE \
+    PIP_INDEX_URL=${TORCH_CUDA_INDEX_URL} \
     PIP_EXTRA_INDEX_URL=${PYPI_INDEX_URL} \
     pip wheel --no-cache-dir --no-binary=mamba-ssm \
     -c constraints/torch-cu124-mamba.txt \
