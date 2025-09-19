@@ -68,9 +68,9 @@ RUN \
     PIP_INDEX_URL=${TORCH_CUDA_INDEX_URL} \
     PIP_EXTRA_INDEX_URL=${PYPI_INDEX_URL} \
     pip wheel --no-cache-dir --no-binary=mamba-ssm \
-      -c constraints/torch-cu124-mamba.txt \
-      mamba-ssm==2.2.5 \
-      -w /tmp/wheels
+    -c constraints/torch-cu124-mamba.txt \
+    mamba-ssm==2.2.5 \
+    -w /tmp/wheels
 
 RUN PIP_INDEX_URL=${TORCH_CUDA_INDEX_URL} \
     PIP_EXTRA_INDEX_URL=${PYPI_INDEX_URL} \
