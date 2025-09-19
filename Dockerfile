@@ -95,6 +95,7 @@ RUN --mount=type=cache,target=/root/.cache/uv,id=uv-cache-zonos-builder-05-torch
 RUN --mount=type=cache,target=/root/.cache/pip,id=pip-cache-zonos-builder-06-mamba \
     PIP_NO_BUILD_ISOLATION=1 MAMBA_FORCE_BUILD=TRUE \
     python -m pip wheel \
+      --no-deps \
       -c constraints/torch-cu124-mamba.txt \
       --index-url ${TORCH_CUDA_INDEX_URL} \
       --extra-index-url ${PYPI_INDEX_URL} \
@@ -104,6 +105,7 @@ RUN --mount=type=cache,target=/root/.cache/pip,id=pip-cache-zonos-builder-06-mam
 
 RUN --mount=type=cache,target=/root/.cache/pip,id=pip-cache-zonos-builder-07-flashcausal \
     python -m pip wheel \
+      --no-deps \
       -c constraints/torch-cu124-mamba.txt \
       --index-url ${TORCH_CUDA_INDEX_URL} \
       --extra-index-url ${PYPI_INDEX_URL} \
@@ -115,6 +117,7 @@ RUN --mount=type=cache,target=/root/.cache/pip,id=pip-cache-zonos-builder-07-fla
 RUN --mount=type=cache,target=/root/.cache/pip,id=pip-cache-zonos-builder-08-vision \
     if [ "$WITH_TORCHVISION" = "1" ]; then \
       python -m pip wheel \
+        --no-deps \
         -c constraints/torch-cu124-mamba.txt \
         --index-url ${TORCH_CUDA_INDEX_URL} \
         --extra-index-url ${PYPI_INDEX_URL} \
