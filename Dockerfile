@@ -331,7 +331,6 @@ PY
 # Stage 2 — Runtime layer
 # ========================================================
 FROM base AS runtime
-SHELL ["/bin/bash", "-euxo", "pipefail", "-c"]
 
 WORKDIR /app
 COPY . ./
