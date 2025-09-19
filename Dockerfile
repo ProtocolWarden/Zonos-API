@@ -6,6 +6,7 @@
 # Stage 0 — Build CUDA wheels against pinned torch
 # Update the digest with tools/docker/update_pytorch_digest.sh when refreshing the base image
 # ========================================================
+SHELL ["/bin/bash", "-euxo", "pipefail", "-c"]
 ARG WITH_TORCHVISION=0
 FROM pytorch/pytorch:2.6.0-cuda12.4-cudnn9-devel@sha256:0cf3402e946b7c384ba943ee05c90b4c5a4a05227923921f2b0918c011cfaf56 AS mamba-builder
 ARG WITH_TORCHVISION
@@ -19,7 +20,6 @@ WORKDIR /tmp/mamba
 COPY constraints/torch-cu124-mamba.txt ./constraints/torch-cu124-mamba.txt
 
 RUN --mount=type=cache,target=/var/cache/apt,id=apt-cache-zonos-builder-00-apt \
-    set -eux; \
     \
     # Remove any stale APT/DPKG locks (cache mount can retain these).
     rm -f \
@@ -63,7 +63,6 @@ if not all(checks.values()):
 PY
 
 RUN --mount=type=cache,target=/root/.cache/uv,id=uv-cache-zonos-builder-00-uv-install \
-    set -eux; \
     curl -LsSf https://astral.sh/uv/install.sh | sh; \
     ln -sf /root/.local/bin/uv /usr/local/bin/uv
 
@@ -146,7 +145,6 @@ print('Requirements sanity: OK')
 PY
 
 RUN --mount=type=cache,target=/var/cache/apt,id=apt-cache-zonos-base-00-apt \
-    set -eux; \
     \
     # Remove any stale APT/DPKG locks (cache mount can retain these).
     rm -f \
@@ -176,7 +174,6 @@ RUN --mount=type=cache,target=/var/cache/apt,id=apt-cache-zonos-base-00-apt \
 
 RUN --mount=type=cache,target=/var/cache/apt,id=apt-cache-zonos-base-01-uvinstall \
     --mount=type=cache,target=/root/.cache/uv,id=uv-cache-zonos-base-00-uv-install \
-    set -eux; \
     \
     # Remove any stale APT/DPKG locks (cache mount can retain these).
     rm -f \
@@ -203,7 +200,7 @@ RUN --mount=type=cache,target=/var/cache/apt,id=apt-cache-zonos-base-01-uvinstal
     ln -sf /root/.local/bin/uv /usr/local/bin/uv; \
     \
     # Remove curl and tidy up so the runtime layer stays slim.
-    apt-get purge -y curl; \
+    apt-get purge -y curl ca-certificates; \
     apt-get autoremove -y; \
     apt-get clean; \
     rm -rf /var/lib/apt/lists/*
