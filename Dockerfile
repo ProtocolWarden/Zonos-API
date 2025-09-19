@@ -18,7 +18,7 @@ WORKDIR /tmp/mamba
 
 COPY constraints/torch-cu124-mamba.txt ./constraints/torch-cu124-mamba.txt
 
-RUN --mount=type=cache,target=/var/cache/apt,id=apt-cache-zonos-builder \
+RUN --mount=type=cache,target=/var/cache/apt,id=apt-cache-zonos-builder-00-apt \
     set -eux; \
     \
     # Remove any stale APT/DPKG locks (cache mount can retain these).
@@ -145,7 +145,7 @@ if suspicious:
 print('Requirements sanity: OK')
 PY
 
-RUN --mount=type=cache,target=/var/cache/apt,id=apt-cache-zonos-base \
+RUN --mount=type=cache,target=/var/cache/apt,id=apt-cache-zonos-base-00-apt \
     set -eux; \
     \
     # Remove any stale APT/DPKG locks (cache mount can retain these).
@@ -174,10 +174,39 @@ RUN --mount=type=cache,target=/var/cache/apt,id=apt-cache-zonos-base \
     apt-get clean; \
     rm -rf /var/lib/apt/lists/*
 
-RUN --mount=type=cache,target=/root/.cache/uv,id=uv-cache-zonos-base-00-uv-install \
+RUN --mount=type=cache,target=/var/cache/apt,id=apt-cache-zonos-base-01-uvinstall \
+    --mount=type=cache,target=/root/.cache/uv,id=uv-cache-zonos-base-00-uv-install \
     set -eux; \
+    \
+    # Remove any stale APT/DPKG locks (cache mount can retain these).
+    rm -f \
+      /var/cache/apt/archives/lock \
+      /var/lib/dpkg/lock-frontend \
+      /var/lib/dpkg/lock \
+      /var/lib/apt/lists/lock; \
+    \
+    # Heal any interrupted dpkg operations (ignore errors).
+    dpkg --configure -a || true; \
+    \
+    # Ensure required dir exists (can be missing in slim images).
+    mkdir -p /var/lib/apt/lists/partial; \
+    \
+    # Update with retries (quiet mode) for transient network issues.
+    apt-get -o Acquire::Retries=3 -y -q update; \
+    \
+    # Install curl and certificates temporarily for the uv installer.
+    apt-get install -y -q --no-install-recommends \
+      curl \
+      ca-certificates; \
+    \
     curl -LsSf https://astral.sh/uv/install.sh | sh; \
-    ln -sf /root/.local/bin/uv /usr/local/bin/uv
+    ln -sf /root/.local/bin/uv /usr/local/bin/uv; \
+    \
+    # Remove curl and tidy up so the runtime layer stays slim.
+    apt-get purge -y curl; \
+    apt-get autoremove -y; \
+    apt-get clean; \
+    rm -rf /var/lib/apt/lists/*
 
 RUN --mount=type=cache,target=/root/.cache/uv,id=uv-cache-zonos-base-01-torch \
     uv pip install --system --no-cache-dir \
