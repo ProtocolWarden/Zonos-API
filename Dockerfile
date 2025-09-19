@@ -117,8 +117,8 @@ RUN --mount=type=cache,target=/root/.cache/pip,id=pip-cache-zonos-builder-07-fla
       causal-conv1d==1.5.0.post8
 
 RUN --mount=type=cache,target=/root/.cache/pip,id=pip-cache-zonos-builder-08-vision \
-    PIP_NO_BUILD_ISOLATION=1 \
     if [ "$WITH_TORCHVISION" = "1" ]; then \
+      PIP_NO_BUILD_ISOLATION=1 \
       python -m pip wheel \
         --no-deps \
         -c constraints/torch-cu124-mamba.txt \
