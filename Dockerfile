@@ -14,7 +14,8 @@ SHELL ["/bin/bash", "-euxo", "pipefail", "-c"]
 
 ENV DEBIAN_FRONTEND=noninteractive \
     TORCH_CUDA_INDEX_URL=https://download.pytorch.org/whl/cu124 \
-    PYPI_INDEX_URL=https://pypi.org/simple
+    PYPI_INDEX_URL=https://pypi.org/simple \
+    TORCH_CUDA_ARCH_LIST="8.6"
 
 WORKDIR /tmp/mamba
 
