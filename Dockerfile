@@ -258,7 +258,7 @@ RUN --mount=type=cache,target=/root/.cache/uv,id=uv-cache-zonos-base-08-vision \
 RUN rm -rf /tmp/wheels || true
 
 COPY pyproject.toml ./
-RUN --mount=type=cache,target=/root/.cache/vcs-scan,id=vcs-sanity-uv-09-scan \
+RUN --mount=type=cache,target=/root/.cache/vcs-scan,id=vcs-sanity-zonos-base-09-scan \
     python - <<'PY'
 from pathlib import Path
 import re
