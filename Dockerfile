@@ -75,6 +75,9 @@ RUN --mount=type=cache,target=/root/.cache/uv,id=uv-cache-zonos-builder-00-uv-in
     apt-get clean; \
     rm -rf /var/lib/apt/lists/*
 
+RUN --mount=type=cache,target=/root/.cache/pip,id=pip-cache-zonos-builder-00-bootstrap \
+    python -m pip install --upgrade pip setuptools wheel
+
 RUN --mount=type=cache,target=/root/.cache/uv,id=uv-cache-zonos-builder-01-torch \
     uv pip install --system --no-cache-dir \
       -c constraints/torch-cu124-mamba.txt \
@@ -86,9 +89,9 @@ RUN --mount=type=cache,target=/root/.cache/uv,id=uv-cache-zonos-builder-01-torch
 # Deterministic local build of mamba-ssm. We disable build isolation so the
 # build uses the Torch we pinned earlier in this stage, and we force source
 # build to avoid any network wheel guessing.
-RUN --mount=type=cache,target=/root/.cache/uv,id=uv-cache-zonos-builder-02-mamba \
+RUN --mount=type=cache,target=/root/.cache/pip,id=pip-cache-zonos-builder-02-mamba \
     PIP_NO_BUILD_ISOLATION=1 MAMBA_FORCE_BUILD=TRUE \
-    uv pip wheel \
+    python -m pip wheel \
       -c constraints/torch-cu124-mamba.txt \
       --index-url ${TORCH_CUDA_INDEX_URL} \
       --extra-index-url ${PYPI_INDEX_URL} \
@@ -96,8 +99,8 @@ RUN --mount=type=cache,target=/root/.cache/uv,id=uv-cache-zonos-builder-02-mamba
       --wheel-dir /tmp/wheels \
       mamba-ssm==2.2.5
 
-RUN --mount=type=cache,target=/root/.cache/uv,id=uv-cache-zonos-builder-03-flashcausal \
-    uv pip wheel \
+RUN --mount=type=cache,target=/root/.cache/pip,id=pip-cache-zonos-builder-03-flashcausal \
+    python -m pip wheel \
       -c constraints/torch-cu124-mamba.txt \
       --index-url ${TORCH_CUDA_INDEX_URL} \
       --extra-index-url ${PYPI_INDEX_URL} \
@@ -106,9 +109,9 @@ RUN --mount=type=cache,target=/root/.cache/uv,id=uv-cache-zonos-builder-03-flash
       flash-attn==2.7.3 \
       causal-conv1d==1.5.0.post8
 
-RUN --mount=type=cache,target=/root/.cache/uv,id=uv-cache-zonos-builder-04-vision \
+RUN --mount=type=cache,target=/root/.cache/pip,id=pip-cache-zonos-builder-04-vision \
     if [ "$WITH_TORCHVISION" = "1" ]; then \
-      uv pip wheel \
+      python -m pip wheel \
         -c constraints/torch-cu124-mamba.txt \
         --index-url ${TORCH_CUDA_INDEX_URL} \
         --extra-index-url ${PYPI_INDEX_URL} \
