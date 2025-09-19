@@ -67,8 +67,8 @@ PY
 
 # --- uv install (fast prebuilt installs). Wheels will be built with pip -------
 RUN --mount=type=cache,target=/root/.cache/uv,id=uv-cache-zonos-builder-03-install \
-    # Note: first -- ends sh options; second --version is passed to the installer
-    curl -LsSf https://astral.sh/uv/install.sh | sh -s -- --version 0.4.0; \
+    UV_INSTALLER_VERSION=0.4.0 \
+    curl -LsSf https://astral.sh/uv/install.sh | sh; \
     ln -sf /root/.local/bin/uv /usr/local/bin/uv; \
     \
     # Remove curl now that uv is available in the builder.
@@ -213,9 +213,9 @@ RUN --mount=type=cache,target=/var/cache/apt,id=apt-cache-zonos-base-03-uv-insta
       curl \
       ca-certificates; \
     \
-    # Pin uv installer to a known-good release for reproducibility.
-    # Note: first -- ends sh options; second --version is passed to the installer
-    curl -LsSf https://astral.sh/uv/install.sh | sh -s -- --version 0.4.0; \
+    # Pin uv installer via environment variable (no --version flag).
+    UV_INSTALLER_VERSION=0.4.0 \
+    curl -LsSf https://astral.sh/uv/install.sh | sh; \
     ln -sf /root/.local/bin/uv /usr/local/bin/uv; \
     \
     # Remove curl (keep ca-certificates for TLS).
