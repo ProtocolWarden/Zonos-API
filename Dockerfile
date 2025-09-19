@@ -12,10 +12,7 @@ ARG WITH_TORCHVISION
 
 ENV DEBIAN_FRONTEND=noninteractive \
     TORCH_CUDA_INDEX_URL=https://download.pytorch.org/whl/cu124 \
-    PYPI_INDEX_URL=https://pypi.org/simple \
-    PIP_DISABLE_PIP_VERSION_CHECK=1 \
-    PIP_NO_COLOR=1 \
-    PIP_DEFAULT_TIMEOUT=60
+    PYPI_INDEX_URL=https://pypi.org/simple
 
 WORKDIR /tmp/mamba
 
@@ -51,11 +48,36 @@ RUN --mount=type=cache,target=/var/cache/apt,id=apt-cache-zonos-builder \
     apt-get clean; \
     rm -rf /var/lib/apt/lists/*
 
-RUN --mount=type=cache,target=/root/.cache/uv,id=uv-cache-builder \
-    curl -LsSf https://astral.sh/uv/install.sh | sh && \
+RUN python - <<'PY'
+import shutil
+import subprocess
+import sys
+
+checks = {
+    'nvcc': shutil.which('nvcc') is not None,
+    'ninja': shutil.which('ninja') is not None,
+}
+
+if checks['nvcc']:
+    result = subprocess.run(['nvcc', '--version'], capture_output=True)
+    checks['cuda_home'] = result.returncode == 0
+else:
+    checks['cuda_home'] = False
+
+print('Toolchain:', checks)
+
+if not all(checks.values()):
+    sys.exit(1)
+PY
+
+RUN --mount=type=cache,target=/root/.cache/uv,id=uv-cache-zonos-builder \
+    set -eux; \
+    curl -LsSf https://astral.sh/uv/install.sh -o /tmp/uv-installer.sh; \
+    sh /tmp/uv-installer.sh; \
+    rm -f /tmp/uv-installer.sh; \
     ln -sf /root/.local/bin/uv /usr/local/bin/uv
 
-RUN --mount=type=cache,target=/root/.cache/uv,id=uv-cache-builder \
+RUN --mount=type=cache,target=/root/.cache/uv,id=uv-cache-zonos-builder \
     uv pip install --system --no-cache-dir \
       -c constraints/torch-cu124-mamba.txt \
       --index-url ${TORCH_CUDA_INDEX_URL} \
@@ -66,7 +88,7 @@ RUN --mount=type=cache,target=/root/.cache/uv,id=uv-cache-builder \
 # Deterministic local build of mamba-ssm. We disable build isolation so the
 # build uses the Torch we pinned earlier in this stage, and we force source
 # build to avoid any network wheel guessing.
-RUN --mount=type=cache,target=/root/.cache/uv,id=uv-cache-builder \
+RUN --mount=type=cache,target=/root/.cache/uv,id=uv-cache-zonos-builder \
     PIP_NO_BUILD_ISOLATION=1 MAMBA_FORCE_BUILD=TRUE \
     uv pip wheel \
       -c constraints/torch-cu124-mamba.txt \
@@ -76,7 +98,7 @@ RUN --mount=type=cache,target=/root/.cache/uv,id=uv-cache-builder \
       --wheel-dir /tmp/wheels \
       mamba-ssm==2.2.5
 
-RUN --mount=type=cache,target=/root/.cache/uv,id=uv-cache-builder \
+RUN --mount=type=cache,target=/root/.cache/uv,id=uv-cache-zonos-builder \
     uv pip wheel \
       -c constraints/torch-cu124-mamba.txt \
       --index-url ${TORCH_CUDA_INDEX_URL} \
@@ -86,7 +108,7 @@ RUN --mount=type=cache,target=/root/.cache/uv,id=uv-cache-builder \
       flash-attn==2.7.3 \
       causal-conv1d==1.5.0.post8
 
-RUN --mount=type=cache,target=/root/.cache/uv,id=uv-cache-builder \
+RUN --mount=type=cache,target=/root/.cache/uv,id=uv-cache-zonos-builder \
     if [ "$WITH_TORCHVISION" = "1" ]; then \
       uv pip wheel \
         -c constraints/torch-cu124-mamba.txt \
@@ -100,15 +122,12 @@ RUN --mount=type=cache,target=/root/.cache/uv,id=uv-cache-builder \
 # ========================================================
 # Stage 1 — Base layer with Python and system deps (slimmer runtime)
 # ========================================================
-FROM pytorch/pytorch:2.6.0-cuda12.4-cudnn9-runtime AS base
+FROM pytorch/pytorch:2.6.0-cuda12.4-cudnn9-runtime@sha256:77f17f843507062875ce8be2a6f76aa6aa3df7f9ef1e31d9d7432f4b0f563dee AS base
 ARG WITH_TORCHVISION
 
 ENV DEBIAN_FRONTEND=noninteractive \
     TORCH_CUDA_INDEX_URL=https://download.pytorch.org/whl/cu124 \
-    PYPI_INDEX_URL=https://pypi.org/simple \
-    PIP_DISABLE_PIP_VERSION_CHECK=1 \
-    PIP_NO_COLOR=1 \
-    PIP_DEFAULT_TIMEOUT=60
+    PYPI_INDEX_URL=https://pypi.org/simple
 
 LABEL built-by="Ctrl+C Ctrl+V DevOps - Thanks Chat" \
       purpose="API container that yells in beautiful voices"
@@ -148,11 +167,14 @@ RUN --mount=type=cache,target=/var/cache/apt,id=apt-cache-zonos-base \
     apt-get clean; \
     rm -rf /var/lib/apt/lists/*
 
-RUN --mount=type=cache,target=/root/.cache/uv,id=uv-cache-base \
-    curl -LsSf https://astral.sh/uv/install.sh | sh && \
+RUN --mount=type=cache,target=/root/.cache/uv,id=uv-cache-zonos-base \
+    set -eux; \
+    curl -LsSf https://astral.sh/uv/install.sh -o /tmp/uv-installer.sh; \
+    sh /tmp/uv-installer.sh; \
+    rm -f /tmp/uv-installer.sh; \
     ln -sf /root/.local/bin/uv /usr/local/bin/uv
 
-RUN --mount=type=cache,target=/root/.cache/uv,id=uv-cache-base \
+RUN --mount=type=cache,target=/root/.cache/uv,id=uv-cache-zonos-base \
     uv pip install --system --no-cache-dir \
       -c constraints/torch-cu124-mamba.txt \
       --index-url ${TORCH_CUDA_INDEX_URL} \
@@ -168,17 +190,17 @@ print('Torch file:', getattr(torch, '__file__', '<missing>'))
 print('Python prefix:', sys.prefix)
 PY
 
-RUN --mount=type=cache,target=/root/.cache/uv,id=uv-cache-base \
+RUN --mount=type=cache,target=/root/.cache/uv,id=uv-cache-zonos-base \
     uv pip install --system --no-cache-dir -r requirements/runtime.txt
 
 COPY --from=mamba-builder /tmp/wheels /tmp/wheels
-RUN --mount=type=cache,target=/root/.cache/uv,id=uv-cache-base \
+RUN --mount=type=cache,target=/root/.cache/uv,id=uv-cache-zonos-base \
     uv pip install --system --no-cache-dir --no-index --find-links=/tmp/wheels \
       mamba-ssm==2.2.5 \
       flash-attn==2.7.3 \
       causal-conv1d==1.5.0.post8
 
-RUN --mount=type=cache,target=/root/.cache/uv,id=uv-cache-base \
+RUN --mount=type=cache,target=/root/.cache/uv,id=uv-cache-zonos-base \
     if [ "$WITH_TORCHVISION" = "1" ]; then \
       uv pip install --system --no-cache-dir --no-index --find-links=/tmp/wheels \
         torchvision==0.21.0+cu124; \
@@ -186,8 +208,57 @@ RUN --mount=type=cache,target=/root/.cache/uv,id=uv-cache-base \
 RUN rm -rf /tmp/wheels || true
 
 COPY pyproject.toml ./
+RUN python - <<'PY'
+from pathlib import Path
+import re
+import sys
+
+text = Path('pyproject.toml').read_text()
+
+try:
+    import tomllib  # Python 3.11+
+except ModuleNotFoundError:  # pragma: no cover - fallback for older interpreters
+    tomllib = None
+
+suspicious = []
+pattern = re.compile(r'(^|[^a-z0-9])vcs([^a-z0-9]|$)')
+
+if tomllib is not None:
+    data = tomllib.loads(text)
+    project = data.get('project', {})
+
+    def _collect(value):
+        collected = []
+        if isinstance(value, dict):
+            for item in value.values():
+                collected.extend(item)
+        elif isinstance(value, (list, tuple, set)):
+            collected.extend(value)
+        elif value:
+            collected.append(value)
+        return collected
+
+    deps = _collect(project.get('dependencies', []))
+    deps += _collect(project.get('optional-dependencies', {}))
+
+    for dep in deps:
+        lower = str(dep).lower()
+        if 'git+' in lower or 'git@' in lower or pattern.search(lower):
+            suspicious.append(dep)
+else:
+    for line in text.splitlines():
+        lower = line.lower()
+        if 'git+' in lower or 'git@' in lower or pattern.search(lower):
+            suspicious.append(line.strip())
+
+if suspicious:
+    print('VCS-like deps found:', suspicious)
+    sys.exit(1)
+
+print('Editable install sanity: OK')
+PY
 COPY zonos ./zonos
-RUN --mount=type=cache,target=/root/.cache/uv,id=uv-cache-base \
+RUN --mount=type=cache,target=/root/.cache/uv,id=uv-cache-zonos-base \
     uv pip install --system --no-cache-dir --no-deps -e .
 
 RUN python - <<'PY'
