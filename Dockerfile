@@ -7,8 +7,12 @@
 # Update the digest with tools/docker/update_pytorch_digest.sh when refreshing the base image
 # ========================================================
 ARG WITH_TORCHVISION=0
+ARG USE_MAMBA_PREBUILT=0
+ARG MAMBA_PREBUILT_SHA256=""
 FROM pytorch/pytorch:2.6.0-cuda12.4-cudnn9-devel@sha256:0cf3402e946b7c384ba943ee05c90b4c5a4a05227923921f2b0918c011cfaf56 AS mamba-builder
 ARG WITH_TORCHVISION
+ARG USE_MAMBA_PREBUILT
+ARG MAMBA_PREBUILT_SHA256
 
 ENV DEBIAN_FRONTEND=noninteractive \
     TORCH_CUDA_INDEX_URL=https://download.pytorch.org/whl/cu124 \
@@ -18,6 +22,8 @@ ENV DEBIAN_FRONTEND=noninteractive \
     PIP_DEFAULT_TIMEOUT=60
 
 WORKDIR /tmp/mamba
+
+COPY docker/scripts/fetch_mamba_wheel.sh ./docker/scripts/fetch_mamba_wheel.sh
 
 COPY constraints/torch-cu124-mamba.txt ./constraints/torch-cu124-mamba.txt
 
@@ -44,7 +50,8 @@ RUN --mount=type=cache,target=/var/cache/apt,id=apt-cache-zonos-builder \
     apt-get install -y -q --no-install-recommends \
       build-essential \
       ninja-build \
-      git; \
+      git \
+      curl; \
     \
     # Clean package lists and cache to minimize layers.
     apt-get clean; \
@@ -60,8 +67,30 @@ RUN PIP_INDEX_URL=${TORCH_CUDA_INDEX_URL} \
     torch==2.6.0+cu124 \
     torchaudio==2.6.0+cu124
 
-# Force mamba-ssm to compile locally instead of downloading prebuilt wheels.
+RUN chmod +x docker/scripts/fetch_mamba_wheel.sh
+
+# Optional prebuilt-wheel pathway (opt-in via build-arg). If enabled, we fetch
+# a specific wheel with retries and verify sha256 before installing. This is
+# primarily for controlled CI mirrors or when local compiles are undesired.
+RUN if [ "${USE_MAMBA_PREBUILT}" = "1" ]; then \
+      mkdir -p /opt/mamba-prebuilt && \
+      /bin/bash docker/scripts/fetch_mamba_wheel.sh \
+        "https://github.com/state-spaces/mamba/releases/download/v2.2.5/mamba_ssm-2.2.5+cu12torch2.8cxx11abiTRUE-cp311-cp311-linux_x86_64.whl" \
+        "/opt/mamba-prebuilt/mamba-ssm.whl" \
+        "${MAMBA_PREBUILT_SHA256}" && \
+      PIP_INDEX_URL=${TORCH_CUDA_INDEX_URL} \
+      PIP_EXTRA_INDEX_URL=${PYPI_INDEX_URL} \
+      pip wheel --no-cache-dir \
+        -c constraints/torch-cu124-mamba.txt \
+        /opt/mamba-prebuilt/mamba-ssm.whl \
+        -w /tmp/wheels ; \
+    fi
+
+# Default: compile locally and ensure consistent deps from our image. We
+# purposely disable build isolation only during this step so the build reuses
+# the Torch we already installed in this stage.
 RUN \
+    PIP_NO_BUILD_ISOLATION=1 \
     MAMBA_FORCE_BUILD=TRUE \
     PIP_INDEX_URL=${TORCH_CUDA_INDEX_URL} \
     PIP_EXTRA_INDEX_URL=${PYPI_INDEX_URL} \
