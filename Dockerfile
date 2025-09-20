@@ -7,9 +7,7 @@
 # MUST use the *devel* variant: compiles CUDA/C++ extensions (nvcc, headers).
 # Update digest with tools/docker/update_pytorch_digest.sh when refreshing base image
 # ========================================================
-ARG WITH_TORCHVISION=0
 FROM pytorch/pytorch:2.6.0-cuda12.4-cudnn9-devel@sha256:0cf3402e946b7c384ba943ee05c90b4c5a4a05227923921f2b0918c011cfaf56 AS mamba-builder
-ARG WITH_TORCHVISION
 SHELL ["/bin/bash", "-euxo", "pipefail", "-c"]
 
 ENV DEBIAN_FRONTEND=noninteractive \
@@ -116,24 +114,11 @@ RUN --mount=type=cache,target=/root/.cache/pip,id=pip-cache-zonos-builder-07-fla
       flash-attn==2.7.3 \
       causal-conv1d==1.5.0.post8
 
-RUN --mount=type=cache,target=/root/.cache/pip,id=pip-cache-zonos-builder-08-vision \
-    if [ "$WITH_TORCHVISION" = "1" ]; then \
-      PIP_NO_BUILD_ISOLATION=1 python -m pip wheel \
-        --no-deps \
-        -c constraints/torch-cu124-mamba.txt \
-        --index-url ${TORCH_CUDA_INDEX_URL} \
-        --extra-index-url ${PYPI_INDEX_URL} \
-        --no-binary=:all: \
-        --wheel-dir /tmp/wheels \
-        torchvision==0.21.0+cu124; \
-    fi
-
 # ========================================================
 # Stage 1 — Base layer with Python and system deps (slimmer runtime)
 # MUST use the *runtime* variant: only needs shared libs to import wheels.
 # ========================================================
 FROM pytorch/pytorch:2.6.0-cuda12.4-cudnn9-runtime@sha256:77f17f843507062875ce8be2a6f76aa6aa3df7f9ef1e31d9d7432f4b0f563dee AS base
-ARG WITH_TORCHVISION
 SHELL ["/bin/bash", "-euxo", "pipefail", "-c"]
 
 ENV DEBIAN_FRONTEND=noninteractive \
@@ -255,15 +240,10 @@ RUN --mount=type=cache,target=/root/.cache/uv,id=uv-cache-zonos-base-07-localwhe
       flash-attn==2.7.3 \
       causal-conv1d==1.5.0.post8
 
-RUN --mount=type=cache,target=/root/.cache/uv,id=uv-cache-zonos-base-08-vision \
-    if [ "$WITH_TORCHVISION" = "1" ]; then \
-      uv pip install --system --no-cache-dir --find-links=/tmp/wheels \
-        torchvision==0.21.0+cu124; \
-    fi
 RUN rm -rf /tmp/wheels || true
 
 COPY pyproject.toml ./
-RUN --mount=type=cache,target=/root/.cache/vcs-scan,id=vcs-sanity-zonos-base-09-scan \
+RUN --mount=type=cache,target=/root/.cache/vcs-scan,id=vcs-sanity-zonos-base-08-scan \
     python - <<'PY'
 from pathlib import Path
 import re
@@ -314,7 +294,7 @@ if suspicious:
 print('Editable install sanity: OK')
 PY
 COPY zonos ./zonos
-RUN --mount=type=cache,target=/root/.cache/uv,id=uv-cache-zonos-base-10-editable \
+RUN --mount=type=cache,target=/root/.cache/uv,id=uv-cache-zonos-base-09-editable \
     uv pip install --system --no-cache-dir --no-deps -e .
 
 RUN python - <<'PY'
