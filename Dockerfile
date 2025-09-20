@@ -171,6 +171,7 @@ RUN --mount=type=cache,target=/var/cache/apt,id=apt-cache-zonos-base-02-apt \
     \
     # Install runtime deps quietly without recommendations.
     apt-get install -y -q --no-install-recommends \
+      build-essential \
       espeak-ng \
       ffmpeg \
       libsndfile1; \
@@ -221,6 +222,16 @@ RUN --mount=type=cache,target=/root/.cache/uv,id=uv-cache-zonos-base-05-torch \
       --extra-index-url ${PYPI_INDEX_URL} \
       torch==2.6.0+cu124 \
       torchaudio==2.6.0+cu124
+
+# Upstream runtime image can include torchvision; remove it explicitly.
+RUN python -m pip uninstall -y torchvision || true
+
+# Sanity check to confirm torchvision isn't importable.
+RUN python - <<'PY'
+import importlib.util
+
+print('torchvision present:', importlib.util.find_spec('torchvision') is not None)
+PY
 
 RUN python - <<'PY'
 import sys
