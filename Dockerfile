@@ -221,17 +221,8 @@ RUN --mount=type=cache,target=/root/.cache/uv,id=uv-cache-zonos-base-05-torch \
       --index-url ${TORCH_CUDA_INDEX_URL} \
       --extra-index-url ${PYPI_INDEX_URL} \
       torch==2.6.0+cu124 \
-      torchaudio==2.6.0+cu124
-
-# Upstream runtime image can include torchvision; remove it explicitly.
-RUN python -m pip uninstall -y torchvision || true
-
-# Sanity check to confirm torchvision isn't importable.
-RUN python - <<'PY'
-import importlib.util
-
-print('torchvision present:', importlib.util.find_spec('torchvision') is not None)
-PY
+      torchaudio==2.6.0+cu124; \
+    python -m pip uninstall -y torchvision || true
 
 RUN python - <<'PY'
 import sys
