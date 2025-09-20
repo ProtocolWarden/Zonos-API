@@ -250,14 +250,14 @@ RUN --mount=type=cache,target=/root/.cache/uv,id=uv-cache-zonos-base-06-reqs \
 
 COPY --from=mamba-builder /tmp/wheels /tmp/wheels
 RUN --mount=type=cache,target=/root/.cache/uv,id=uv-cache-zonos-base-07-localwheels \
-    uv pip install --system --no-cache-dir --no-index --find-links=/tmp/wheels \
+    uv pip install --system --no-cache-dir --find-links=/tmp/wheels \
       mamba-ssm==2.2.5 \
       flash-attn==2.7.3 \
       causal-conv1d==1.5.0.post8
 
 RUN --mount=type=cache,target=/root/.cache/uv,id=uv-cache-zonos-base-08-vision \
     if [ "$WITH_TORCHVISION" = "1" ]; then \
-      uv pip install --system --no-cache-dir --no-index --find-links=/tmp/wheels \
+      uv pip install --system --no-cache-dir --find-links=/tmp/wheels \
         torchvision==0.21.0+cu124; \
     fi
 RUN rm -rf /tmp/wheels || true
