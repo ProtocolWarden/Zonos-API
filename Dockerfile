@@ -243,7 +243,7 @@ RUN --mount=type=cache,target=/root/.cache/uv,id=uv-cache-zonos-base-07-localwhe
 RUN rm -rf /tmp/wheels || true
 
 COPY pyproject.toml ./
-RUN --mount=type=cache,target=/root/.cache/vcs-scan,id=vcs-sanity-zonos-base-09-scan \
+RUN --mount=type=cache,target=/root/.cache/vcs-scan,id=vcs-sanity-zonos-base-08-scan \
     python - <<'PY'
 from pathlib import Path
 import re
@@ -294,7 +294,7 @@ if suspicious:
 print('Editable install sanity: OK')
 PY
 COPY zonos ./zonos
-RUN --mount=type=cache,target=/root/.cache/uv,id=uv-cache-zonos-base-10-editable \
+RUN --mount=type=cache,target=/root/.cache/uv,id=uv-cache-zonos-base-09-editable \
     uv pip install --system --no-cache-dir --no-deps -e .
 
 RUN python - <<'PY'
