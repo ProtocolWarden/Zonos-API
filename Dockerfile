@@ -116,8 +116,10 @@ RUN --mount=type=cache,target=/root/.cache/pip,id=pip-cache-zonos-builder-06-mam
       --wheel-dir /tmp/wheels \
       mamba-ssm==2.2.5
 
-# --- Build selective-scan from source (matches Torch in this stage) ----------
-RUN --mount=type=cache,target=/root/.cache/pip,id=pip-cache-zonos-builder-06b-selective-scan \
+# --- Build selective-scan from GitHub (matches Torch in this stage) ----------
+ARG SELECTIVE_SCAN_GIT_REF=main
+RUN --mount=type=cache,target=/root/.cache/pip,id=pip-cache-sscan \
+    --mount=type=cache,target=/root/.cache/git,id=git-cache-sscan \
     PIP_NO_BUILD_ISOLATION=1 \
     python -m pip wheel \
       --no-deps \
@@ -126,7 +128,7 @@ RUN --mount=type=cache,target=/root/.cache/pip,id=pip-cache-zonos-builder-06b-se
       --extra-index-url ${PYPI_INDEX_URL} \
       --no-binary=:all: \
       --wheel-dir /tmp/wheels \
-      selective-scan
+      git+https://github.com/state-spaces/selective_scan.git@${SELECTIVE_SCAN_GIT_REF}
 
 RUN --mount=type=cache,target=/root/.cache/pip,id=pip-cache-zonos-builder-07-flashcausal \
     PIP_NO_BUILD_ISOLATION=1 \
@@ -265,11 +267,16 @@ RUN --mount=type=cache,target=/root/.cache/uv,id=uv-cache-zonos-base-06-reqs \
 
 COPY --from=mamba-builder /tmp/wheels /tmp/wheels
 RUN --mount=type=cache,target=/root/.cache/uv,id=uv-cache-zonos-base-07-localwheels \
-    uv pip install --system --no-cache-dir --find-links=/tmp/wheels \
+    uv pip install --system --no-cache-dir \
+      -c constraints/torch-cu124-mamba.txt \
+      --index-url ${TORCH_CUDA_INDEX_URL} \
+      --extra-index-url ${PYPI_INDEX_URL} \
+      --find-links=/tmp/wheels \
       selective-scan \
       mamba-ssm==2.2.5 \
       flash-attn==2.7.3 \
-      causal-conv1d==1.5.0.post8
+      causal-conv1d==1.5.0.post8 \
+  && python -m pip check
 
 RUN rm -rf /tmp/wheels || true
 
