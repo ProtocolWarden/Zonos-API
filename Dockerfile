@@ -89,6 +89,20 @@ RUN --mount=type=cache,target=/root/.cache/uv,id=uv-cache-zonos-builder-05-torch
       torch==2.6.0+cu124 \
       torchaudio==2.6.0+cu124
 
+RUN python - <<'PY'
+import json
+import pathlib
+import torch
+
+pathlib.Path('/tmp/torch_build.json').write_text(
+    json.dumps({
+        'torch': torch.__version__,
+        'cuda': torch.version.cuda,
+    })
+)
+print('Recorded torch build info for base stage guard')
+PY
+
 # --- Build wheels (source builds with pip wheel) -------------------------------
 # mamba-ssm from source; reuse pinned Torch in this stage.
 RUN --mount=type=cache,target=/root/.cache/pip,id=pip-cache-zonos-builder-06-mamba \
@@ -101,6 +115,18 @@ RUN --mount=type=cache,target=/root/.cache/pip,id=pip-cache-zonos-builder-06-mam
       --no-binary=mamba-ssm \
       --wheel-dir /tmp/wheels \
       mamba-ssm==2.2.5
+
+# --- Build selective-scan from source (matches Torch in this stage) ----------
+RUN --mount=type=cache,target=/root/.cache/pip,id=pip-cache-zonos-builder-06b-selective-scan \
+    PIP_NO_BUILD_ISOLATION=1 \
+    python -m pip wheel \
+      --no-deps \
+      -c constraints/torch-cu124-mamba.txt \
+      --index-url ${TORCH_CUDA_INDEX_URL} \
+      --extra-index-url ${PYPI_INDEX_URL} \
+      --no-binary=:all: \
+      --wheel-dir /tmp/wheels \
+      selective-scan
 
 RUN --mount=type=cache,target=/root/.cache/pip,id=pip-cache-zonos-builder-07-flashcausal \
     PIP_NO_BUILD_ISOLATION=1 \
@@ -224,12 +250,14 @@ RUN --mount=type=cache,target=/root/.cache/uv,id=uv-cache-zonos-base-05-torch \
       torchaudio==2.6.0+cu124; \
     python -m pip uninstall -y torchvision || true
 
+COPY --from=mamba-builder /tmp/torch_build.json /tmp/torch_build.json
 RUN python - <<'PY'
-import sys
-import torch
+import json, torch, pathlib
 
-print('Torch file:', getattr(torch, '__file__', '<missing>'))
-print('Python prefix:', sys.prefix)
+b = json.loads(pathlib.Path('/tmp/torch_build.json').read_text())
+cur = {"torch": torch.__version__, "cuda": torch.version.cuda}
+print("Runtime Torch:", cur)
+assert cur == b, f"Builder/runtime Torch mismatch: {b} != {cur}"
 PY
 
 RUN --mount=type=cache,target=/root/.cache/uv,id=uv-cache-zonos-base-06-reqs \
@@ -237,7 +265,8 @@ RUN --mount=type=cache,target=/root/.cache/uv,id=uv-cache-zonos-base-06-reqs \
 
 COPY --from=mamba-builder /tmp/wheels /tmp/wheels
 RUN --mount=type=cache,target=/root/.cache/uv,id=uv-cache-zonos-base-07-localwheels \
-    uv pip install --system --no-cache-dir --find-links=/tmp/wheels \
+    uv pip install --system --no-cache-dir --find-links=/tmp/wheels --no-deps \
+      selective-scan \
       mamba-ssm==2.2.5 \
       flash-attn==2.7.3 \
       causal-conv1d==1.5.0.post8
@@ -300,26 +329,15 @@ RUN --mount=type=cache,target=/root/.cache/uv,id=uv-cache-zonos-base-09-editable
     uv pip install --system --no-cache-dir --no-deps -e .
 
 RUN python - <<'PY'
-import sys
-import torch
+import importlib.util, torch
 
-print('Torch', torch.__version__, 'CUDA', torch.version.cuda, 'available', torch.cuda.is_available())
-print('Torch file:', getattr(torch, '__file__', '<missing>'))
-print('Python prefix:', sys.prefix)
+print('Torch:', torch.__version__, torch.version.cuda)
+for mod in ("selective_scan_cuda", "mamba_ssm"):
+    spec = importlib.util.find_spec(mod)
+    print(mod, "->", getattr(spec, "origin", None))
 
-try:
-    import mamba_ssm
-    print('mamba-ssm', getattr(mamba_ssm, '__version__', 'unknown'))
-except Exception as exc:  # pragma: no cover - smoke check
-    print('mamba-ssm import failed:', exc)
-
-for name in ('flash_attn', 'causal_conv1d'):
-    try:
-        module = __import__(name.replace('-', '_'))
-    except Exception as exc:  # pragma: no cover - smoke check
-        print(f'{name} import failed:', exc)
-    else:
-        print(f'{name}', getattr(module, '__version__', 'unknown'))
+import mamba_ssm
+print('mamba-ssm OK')
 PY
 
 # ========================================================
