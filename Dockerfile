@@ -265,7 +265,7 @@ RUN --mount=type=cache,target=/root/.cache/uv,id=uv-cache-zonos-base-06-reqs \
 
 COPY --from=mamba-builder /tmp/wheels /tmp/wheels
 RUN --mount=type=cache,target=/root/.cache/uv,id=uv-cache-zonos-base-07-localwheels \
-    uv pip install --system --no-cache-dir --find-links=/tmp/wheels --no-deps \
+    uv pip install --system --no-cache-dir --find-links=/tmp/wheels \
       selective-scan \
       mamba-ssm==2.2.5 \
       flash-attn==2.7.3 \
