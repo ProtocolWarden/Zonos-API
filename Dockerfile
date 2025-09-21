@@ -168,6 +168,7 @@ WORKDIR /app
 
 COPY constraints/torch-cu124-mamba.txt ./constraints/torch-cu124-mamba.txt
 COPY requirements ./requirements
+COPY uv.lock pyproject.toml ./  # bring lock + metadata to export constraints
 
 RUN --mount=type=cache,target=/root/.cache/req-scan,id=req-sanity-zonos-base-01-scan \
     python - <<'PY'
@@ -270,12 +271,21 @@ print("Runtime Torch:", cur)
 assert cur == b, f"Builder/runtime Torch mismatch: {b} != {cur}"
 PY
 
+# Export the lock to a pip-readable constraints file
+RUN --mount=type=cache,target=/root/.cache/uv,id=uv-cache-zonos-base-05a-uvexport \
+    uv export --frozen --locked --format requirements-txt > /tmp/constraints.lock.txt
+
+# Install normal runtime deps under both constraints files (lock + torch/cu124)
 RUN --mount=type=cache,target=/root/.cache/uv,id=uv-cache-zonos-base-06-reqs \
-    uv pip install --system --no-cache-dir -r requirements/runtime.txt
+    uv pip install --system --no-cache-dir \
+      -c /tmp/constraints.lock.txt \
+      -c constraints/torch-cu124-mamba.txt \
+      -r requirements/runtime.txt
 
 COPY --from=mamba-builder /tmp/wheels /tmp/wheels
 RUN --mount=type=cache,target=/root/.cache/uv,id=uv-cache-zonos-base-07-localwheels \
     uv pip install --system --no-cache-dir \
+      -c /tmp/constraints.lock.txt \
       -c constraints/torch-cu124-mamba.txt \
       --index-url ${TORCH_CUDA_INDEX_URL} \
       --extra-index-url ${PYPI_INDEX_URL} \
