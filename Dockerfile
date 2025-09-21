@@ -13,7 +13,7 @@ SHELL ["/bin/bash", "-euxo", "pipefail", "-c"]
 ENV DEBIAN_FRONTEND=noninteractive \
     TORCH_CUDA_INDEX_URL=https://download.pytorch.org/whl/cu124 \
     PYPI_INDEX_URL=https://pypi.org/simple \
-    TORCH_CUDA_ARCH_LIST="8.6"
+    TORCH_CUDA_ARCH_LIST="8.6;8.9+PTX"
 
 # Force CUDA build (no CPU fallback) for native extensions
 ENV CUDA_HOME=/usr/local/cuda \
@@ -157,9 +157,7 @@ SHELL ["/bin/bash", "-euxo", "pipefail", "-c"]
 ENV DEBIAN_FRONTEND=noninteractive \
     TORCH_CUDA_INDEX_URL=https://download.pytorch.org/whl/cu124 \
     PYPI_INDEX_URL=https://pypi.org/simple
-ENV CUDA_HOME=/usr/local/cuda \
-    FORCE_CUDA=1 \
-    TORCH_CUDA_ARCH_LIST="8.6"
+ENV TORCH_CUDA_ARCH_LIST="8.6;8.9+PTX"
 
 LABEL built-by="Ctrl+C Ctrl+V DevOps - Thanks Chat" \
       purpose="API container that yells in beautiful voices"
@@ -280,9 +278,23 @@ RUN --mount=type=cache,target=/root/.cache/uv,id=uv-cache-zonos-base-06-reqs \
     uv pip install --system --no-cache-dir \
       -c /tmp/constraints.lock.txt \
       -c constraints/torch-cu124-mamba.txt \
-      -r requirements/runtime.txt
+      -r requirements/runtime.txt \
+  && python -m pip check
 
 COPY --from=mamba-builder /tmp/wheels /tmp/wheels
+RUN python - <<'PY'
+import glob, zipfile
+for name in ("flash_attn-*.whl","causal_conv1d-*.whl"):
+    wh = sorted(glob.glob(f"/tmp/wheels/{name}"))
+    if not wh:
+        raise SystemExit(f"Missing wheel for {name}")
+    print(name, "->", wh[-1])
+    with zipfile.ZipFile(wh[-1]) as zf:
+        sos = [n for n in zf.namelist() if n.endswith('.so')]
+        if not sos:
+            raise SystemExit(f"No .so files detected in {wh[-1]}")
+        print("  .so entries:", sos[:5], "... total:", len(sos))
+PY
 RUN --mount=type=cache,target=/root/.cache/uv,id=uv-cache-zonos-base-07-localwheels \
     uv pip install --system --no-cache-dir \
       -c /tmp/constraints.lock.txt \
@@ -296,8 +308,6 @@ RUN --mount=type=cache,target=/root/.cache/uv,id=uv-cache-zonos-base-07-localwhe
   && python -m pip check
 
 RUN rm -rf /tmp/wheels || true
-
-COPY pyproject.toml ./
 RUN --mount=type=cache,target=/root/.cache/vcs-scan,id=vcs-sanity-zonos-base-08-scan \
     python - <<'PY'
 from pathlib import Path
