@@ -278,7 +278,7 @@ RUN --mount=type=cache,target=/root/.cache/uv,id=uv-cache-zonos-base-05a-uv-lock
 # Export the lock to a pip-readable constraints file (from existing uv.lock)
 # NOTE: --frozen and --locked are mutually exclusive. Use --locked to rely strictly on uv.lock.
 RUN --mount=type=cache,target=/root/.cache/uv,id=uv-cache-zonos-base-05b-uv-export \
-    uv export --locked --format requirements-txt --extra compile > /tmp/constraints.lock.txt
+    uv export --locked --format requirements-txt > /tmp/constraints.lock.txt
 
 # Install normal runtime deps under both constraints files (lock + torch/cu124)
 RUN --mount=type=cache,target=/root/.cache/uv,id=uv-cache-zonos-base-06-reqs \
