@@ -166,7 +166,9 @@ WORKDIR /app
 
 COPY constraints/torch-cu124-mamba.txt ./constraints/torch-cu124-mamba.txt
 COPY requirements ./requirements
-COPY uv.lock pyproject.toml ./  # bring lock + metadata to export constraints
+
+# Bring lock + metadata to export constraints when exporting requirements.
+COPY uv.lock pyproject.toml ./
 
 RUN --mount=type=cache,target=/root/.cache/req-scan,id=req-sanity-zonos-base-01-scan \
     python - <<'PY'
