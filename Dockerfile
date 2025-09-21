@@ -271,6 +271,10 @@ print("Runtime Torch:", cur)
 assert cur == b, f"Builder/runtime Torch mismatch: {b} != {cur}"
 PY
 
+# refresh lock for Python 3.11 + Linux
+RUN --mount=type=cache,target=/root/.cache/uv \
+    uv lock --python 3.11 --extra compile
+
 # Export the lock to a pip-readable constraints file (from existing uv.lock)
 # NOTE: --frozen and --locked are mutually exclusive. Use --locked to rely strictly on uv.lock.
 RUN --mount=type=cache,target=/root/.cache/uv,id=uv-cache-zonos-base-05a-uvexport \
