@@ -2,12 +2,16 @@
 # syntax=docker/dockerfile:1.4
 # ========================================================
 
+# Pin uv version globally (must also be re-declared after each FROM if needed)
+ARG UV_VERSION=0.8.19
+
 # ========================================================
 # Stage 0 — Build CUDA wheels against pinned torch
 # MUST use the *devel* variant: compiles CUDA/C++ extensions (nvcc, headers).
 # Update digest with tools/docker/update_pytorch_digest.sh when refreshing base image
 # ========================================================
 FROM pytorch/pytorch:2.6.0-cuda12.4-cudnn9-devel@sha256:0cf3402e946b7c384ba943ee05c90b4c5a4a05227923921f2b0918c011cfaf56 AS mamba-builder
+ARG UV_VERSION
 SHELL ["/bin/bash", "-euxo", "pipefail", "-c"]
 
 ENV DEBIAN_FRONTEND=noninteractive \
@@ -68,16 +72,14 @@ if not all(checks.values()):
     sys.exit(1)
 PY
 
-# --- uv install (fast prebuilt installs). Wheels will be built with pip -------
+# --- uv install (pin uv binary version) ---------------------------------------
 RUN --mount=type=cache,target=/root/.cache/uv,id=uv-cache-zonos-builder-03-install \
-    UV_INSTALLER_VERSION=0.4.0 \
-    curl -LsSf https://astral.sh/uv/install.sh | sh; \
-    ln -sf /root/.local/bin/uv /usr/local/bin/uv; \
-    \
-    # Remove curl now that uv is available in the builder.
-    apt-get purge -y curl; \
-    apt-get autoremove -y; \
-    apt-get clean; \
+    curl -LsSf "https://astral.sh/uv/${UV_VERSION}/install.sh" | sh && \
+    ln -sf /root/.local/bin/uv /usr/local/bin/uv && \
+    uv --version && \
+    apt-get purge -y curl && \
+    apt-get autoremove -y && \
+    apt-get clean && \
     rm -rf /var/lib/apt/lists/*
 
 # --- pip bootstrap (for building wheels) --------------------------------------
@@ -152,6 +154,7 @@ RUN --mount=type=cache,target=/root/.cache/pip,id=pip-cache-zonos-builder-07-fla
 # MUST use the *runtime* variant: only needs shared libs to import wheels.
 # ========================================================
 FROM pytorch/pytorch:2.6.0-cuda12.4-cudnn9-runtime@sha256:77f17f843507062875ce8be2a6f76aa6aa3df7f9ef1e31d9d7432f4b0f563dee AS base
+ARG UV_VERSION
 SHELL ["/bin/bash", "-euxo", "pipefail", "-c"]
 
 ENV DEBIAN_FRONTEND=noninteractive \
@@ -241,10 +244,10 @@ RUN --mount=type=cache,target=/var/cache/apt,id=apt-cache-zonos-base-03-uv-insta
       curl \
       ca-certificates; \
     \
-    # Pin uv installer via environment variable (no --version flag).
-    UV_INSTALLER_VERSION=0.4.0 \
-    curl -LsSf https://astral.sh/uv/install.sh | sh; \
+    # Install uv at a pinned version
+    curl -LsSf "https://astral.sh/uv/${UV_VERSION}/install.sh" | sh; \
     ln -sf /root/.local/bin/uv /usr/local/bin/uv; \
+    uv --version; \
     \
     # Remove curl (keep ca-certificates for TLS).
     apt-get purge -y curl; \
