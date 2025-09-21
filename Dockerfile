@@ -15,6 +15,10 @@ ENV DEBIAN_FRONTEND=noninteractive \
     PYPI_INDEX_URL=https://pypi.org/simple \
     TORCH_CUDA_ARCH_LIST="8.6"
 
+# Force CUDA build (no CPU fallback) for native extensions
+ENV CUDA_HOME=/usr/local/cuda \
+    FORCE_CUDA=1
+
 WORKDIR /tmp/mamba
 
 COPY constraints/torch-cu124-mamba.txt ./constraints/torch-cu124-mamba.txt
@@ -116,19 +120,20 @@ RUN --mount=type=cache,target=/root/.cache/pip,id=pip-cache-zonos-builder-06-mam
       --wheel-dir /tmp/wheels \
       mamba-ssm==2.2.5
 
-# --- Build selective-scan from GitHub (matches Torch in this stage) ----------
-ARG SELECTIVE_SCAN_GIT_REF=main
-RUN --mount=type=cache,target=/root/.cache/pip,id=pip-cache-sscan \
-    --mount=type=cache,target=/root/.cache/git,id=git-cache-sscan \
-    PIP_NO_BUILD_ISOLATION=1 \
-    python -m pip wheel \
-      --no-deps \
-      -c constraints/torch-cu124-mamba.txt \
-      --index-url ${TORCH_CUDA_INDEX_URL} \
-      --extra-index-url ${PYPI_INDEX_URL} \
-      --no-binary=:all: \
-      --wheel-dir /tmp/wheels \
-      git+https://github.com/state-spaces/selective_scan.git@${SELECTIVE_SCAN_GIT_REF}
+# Verify the built wheel actually contains the CUDA .so
+RUN python - <<'PY'
+import glob, zipfile, sys
+wheels = sorted(glob.glob('/tmp/wheels/mamba_ssm-*.whl'))
+assert wheels, "mamba-ssm wheel not found in /tmp/wheels"
+wheel = wheels[-1]
+print("Built wheel:", wheel)
+with zipfile.ZipFile(wheel) as zf:
+    so = [n for n in zf.namelist() if n.endswith('.so') and 'selective_scan_cuda' in n]
+    print("selective_scan_cuda entries:", so)
+    if not so:
+        sys.exit("ERROR: selective_scan_cuda*.so missing from mamba-ssm wheel")
+print("OK: mamba-ssm wheel contains selective_scan_cuda")
+PY
 
 RUN --mount=type=cache,target=/root/.cache/pip,id=pip-cache-zonos-builder-07-flashcausal \
     PIP_NO_BUILD_ISOLATION=1 \
@@ -152,6 +157,9 @@ SHELL ["/bin/bash", "-euxo", "pipefail", "-c"]
 ENV DEBIAN_FRONTEND=noninteractive \
     TORCH_CUDA_INDEX_URL=https://download.pytorch.org/whl/cu124 \
     PYPI_INDEX_URL=https://pypi.org/simple
+ENV CUDA_HOME=/usr/local/cuda \
+    FORCE_CUDA=1 \
+    TORCH_CUDA_ARCH_LIST="8.6"
 
 LABEL built-by="Ctrl+C Ctrl+V DevOps - Thanks Chat" \
       purpose="API container that yells in beautiful voices"
@@ -272,7 +280,6 @@ RUN --mount=type=cache,target=/root/.cache/uv,id=uv-cache-zonos-base-07-localwhe
       --index-url ${TORCH_CUDA_INDEX_URL} \
       --extra-index-url ${PYPI_INDEX_URL} \
       --find-links=/tmp/wheels \
-      selective-scan \
       mamba-ssm==2.2.5 \
       flash-attn==2.7.3 \
       causal-conv1d==1.5.0.post8 \
