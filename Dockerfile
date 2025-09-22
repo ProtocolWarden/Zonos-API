@@ -372,15 +372,20 @@ RUN --mount=type=cache,target=/root/.cache/uv,id=uv-cache-zonos-base-09-editable
     uv pip install --system --no-cache-dir --no-deps -e .
 
 RUN python - <<'PY'
-import importlib.util, torch
+import importlib.util, importlib.metadata, torch
 
 print('Torch:', torch.__version__, torch.version.cuda)
+
+# Check presence WITHOUT importing (avoids Triton driver init)
 for mod in ("selective_scan_cuda", "mamba_ssm"):
     spec = importlib.util.find_spec(mod)
-    print(mod, "->", getattr(spec, "origin", None))
+    print(mod, "found:", bool(spec), "origin:", getattr(spec, "origin", None))
 
-import mamba_ssm
-print('mamba-ssm OK')
+# Also sanity print versions from metadata (no import)
+try:
+    print("mamba-ssm version:", importlib.metadata.version("mamba-ssm"))
+except importlib.metadata.PackageNotFoundError:
+    print("mamba-ssm not installed?")
 PY
 
 # ========================================================
