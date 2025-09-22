@@ -6,4 +6,4 @@ torch==2.6.0+cu124 ; platform_system == "Linux"
 torchaudio==2.6.0+cu124 ; platform_system == "Linux"
 
 # Build helpers required by causal-conv1d and mamba-ssm
-ninja==1.11.1.1
+ninja==1.11.1.3
