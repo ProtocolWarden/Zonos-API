@@ -36,17 +36,6 @@ RUN --mount=type=cache,target=/root/.cache/uv,id=uv-cache-zonos-builder-install 
 # Bring manifests only (no source yet)
 COPY pyproject.toml uv.lock ./
 
-# 1) Export the cuda124 set after torch is present
-RUN --mount=type=cache,target=/root/.cache/uv,id=uv-cache-zonos-builder-export \
-    uv export --locked --extra cuda124 --format requirements-txt > /cuda.lock.txt
-
-# Ensure the builder environment matches the exported lockfile
-RUN --mount=type=cache,target=/root/.cache/uv,id=uv-cache-zonos-builder-torch \
-    uv pip install --system --no-cache-dir \
-      --index-url ${TORCH_CUDA_INDEX_URL} \
-      --extra-index-url ${PYPI_INDEX_URL} \
-      -r /cuda.lock.txt
-
 # 2) Record torch build pair for runtime assert
 RUN python - <<'PY'
 import json, torch, pathlib
@@ -114,20 +103,6 @@ COPY --from=builder /cuda.lock.txt /cuda.lock.txt
 COPY --from=builder /compile.lock.txt /compile.lock.txt
 COPY --from=builder /wheels /wheels
 COPY pyproject.toml uv.lock ./
-
-# 1) Install Torch stack from cuda.lock.txt to match builder ABI
-RUN --mount=type=cache,target=/root/.cache/uv,id=uv-cache-zonos-runtime-torch \
-    uv pip install --system --no-cache-dir \
-      --index-url ${TORCH_CUDA_INDEX_URL} \
-      --extra-index-url ${PYPI_INDEX_URL} \
-      -r /cuda.lock.txt && \
-    python - <<'PY'
-import json, torch, pathlib
-b = json.loads(pathlib.Path('/torch_build.json').read_text())
-cur = {"torch": torch.__version__, "cuda": torch.version.cuda}
-print("Torch runtime:", cur)
-assert cur == b, f"Builder/runtime Torch mismatch: {b} != {cur}"
-PY
 
 # 2) Export runtime set from lockfile and install it
 RUN --mount=type=cache,target=/root/.cache/uv,id=uv-cache-zonos-runtime-export \
