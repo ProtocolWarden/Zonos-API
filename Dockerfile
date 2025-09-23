@@ -36,16 +36,26 @@ RUN --mount=type=cache,target=/root/.cache/uv,id=uv-cache-zonos-builder-install 
 # Bring manifests only (no source yet)
 COPY pyproject.toml uv.lock ./
 
-# 1) Export and install the Torch stack from the cuda124 extra (ABI anchor)
+# 1) Install Torch stack explicitly (ABI anchor)
+RUN --mount=type=cache,target=/root/.cache/uv,id=uv-cache-zonos-builder-torch \
+    uv pip install --system --no-cache-dir \
+      --index-url ${TORCH_CUDA_INDEX_URL} \
+      --extra-index-url ${PYPI_INDEX_URL} \
+      torch==2.6.0+cu124 \
+      torchaudio==2.6.0+cu124
+
+# 2) Export the cuda124 set after torch is present
 RUN --mount=type=cache,target=/root/.cache/uv,id=uv-cache-zonos-builder-export \
-    uv export --locked --extra cuda124 --format requirements-txt > /cuda.lock.txt
+    UV_NO_BUILD_ISOLATION=1 uv export --locked --extra cuda124 --format requirements-txt > /cuda.lock.txt
+
+# Ensure the builder environment matches the exported lockfile
 RUN --mount=type=cache,target=/root/.cache/uv,id=uv-cache-zonos-builder-torch \
     uv pip install --system --no-cache-dir \
       --index-url ${TORCH_CUDA_INDEX_URL} \
       --extra-index-url ${PYPI_INDEX_URL} \
       -r /cuda.lock.txt
 
-# 2) Record torch build pair for runtime assert
+# 3) Record torch build pair for runtime assert
 RUN python - <<'PY'
 import json, torch, pathlib
 pathlib.Path('/torch_build.json').write_text(
@@ -53,9 +63,9 @@ pathlib.Path('/torch_build.json').write_text(
 )
 PY
 
-# 3) Export the compile extra and build wheels for CUDA extensions (no isolation!)
+# 4) Export the compile extra and build wheels for CUDA extensions (no isolation!)
 RUN --mount=type=cache,target=/root/.cache/uv,id=uv-cache-zonos-builder-export \
-    uv export --locked --extra compile --format requirements-txt > /compile.lock.txt
+    UV_NO_BUILD_ISOLATION=1 uv export --locked --extra compile --format requirements-txt > /compile.lock.txt
 RUN --mount=type=cache,target=/root/.cache/pip,id=pip-cache-zonos-builder-wheels \
     PIP_NO_BUILD_ISOLATION=1 UV_NO_BUILD_ISOLATION=1 \
     python -m pip wheel --no-deps --no-binary=:all: \

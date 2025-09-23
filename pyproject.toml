@@ -43,3 +43,8 @@ compile = [
 
 [tool.setuptools.packages.find]
 include = ["zonos"]
+
+[tool.uv.extra-build-dependencies]
+causal-conv1d = ["torch"]
+flash-attn = ["torch"]
+mamba-ssm = ["torch"]
