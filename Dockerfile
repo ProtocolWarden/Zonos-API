@@ -36,13 +36,14 @@ RUN --mount=type=cache,target=/root/.cache/uv,id=uv-cache-zonos-builder-install 
 # Bring manifests only (no source yet)
 COPY pyproject.toml uv.lock ./
 
-# 1) Install the EXACT torch/torchaudio first (ABI anchor)
+# 1) Export and install the Torch stack from the cuda124 extra (ABI anchor)
+RUN --mount=type=cache,target=/root/.cache/uv,id=uv-cache-zonos-builder-export \
+    uv export --locked -E cuda124 --format requirements-txt > /cuda.lock.txt
 RUN --mount=type=cache,target=/root/.cache/uv,id=uv-cache-zonos-builder-torch \
     uv pip install --system --no-cache-dir \
       --index-url ${TORCH_CUDA_INDEX_URL} \
       --extra-index-url ${PYPI_INDEX_URL} \
-      torch==2.6.0+cu124 \
-      torchaudio==2.6.0+cu124
+      -r /cuda.lock.txt
 
 # 2) Record torch build pair for runtime assert
 RUN python - <<'PY'
@@ -107,17 +108,17 @@ RUN --mount=type=cache,target=/root/.cache/uv,id=uv-cache-zonos-runtime-install 
 
 # Bring manifests + prebuilt wheels + torch-build marker
 COPY --from=builder /torch_build.json /torch_build.json
+COPY --from=builder /cuda.lock.txt /cuda.lock.txt
 COPY --from=builder /compile.lock.txt /compile.lock.txt
 COPY --from=builder /wheels /wheels
 COPY pyproject.toml uv.lock ./
 
-# 1) Install EXACT torch/torchaudio to match builder ABI
+# 1) Install Torch stack from cuda.lock.txt to match builder ABI
 RUN --mount=type=cache,target=/root/.cache/uv,id=uv-cache-zonos-runtime-torch \
     uv pip install --system --no-cache-dir \
       --index-url ${TORCH_CUDA_INDEX_URL} \
       --extra-index-url ${PYPI_INDEX_URL} \
-      torch==2.6.0+cu124 \
-      torchaudio==2.6.0+cu124 && \
+      -r /cuda.lock.txt && \
     python - <<'PY'
 import json, torch, pathlib
 b = json.loads(pathlib.Path('/torch_build.json').read_text())
