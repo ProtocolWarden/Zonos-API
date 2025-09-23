@@ -264,13 +264,13 @@ python -m pip install --upgrade pip
 # ensure the `uv` CLI is available (https://docs.astral.sh/uv/getting-started/)
 python -m pip install --index-url https://download.pytorch.org/whl/cu124 \
   --extra-index-url https://pypi.org/simple \
-  torch==2.4.1+cu124 torchaudio==2.4.1+cu124
+  torch==2.6.0+cu124 torchaudio==2.6.0+cu124
 uv export --locked --format requirements-txt > runtime.lock.txt
 python -m pip install -r runtime.lock.txt
 python -m pip install -e . --no-deps
 ```
 
-> Need `torchvision`? Install the matching CUDA 12.4 wheel, e.g. `python -m pip install --index-url https://download.pytorch.org/whl/cu124 torchvision==0.19.1+cu124`.
+> Need `torchvision`? Install the matching CUDA 12.4 wheel, e.g. `python -m pip install --index-url https://download.pytorch.org/whl/cu124 torchvision==0.21.0+cu124`.
 
 Hybrid checkpoints additionally need the CUDA extensions from the `compile` extra:
 
@@ -284,7 +284,7 @@ python -m pip install --no-build-isolation -r compile.lock.txt
 On host installs these extensions compile locally and therefore require a matching CUDA toolkit, compiler, and headers.
 Inside the Docker images they are prebuilt as wheels during the builder stage, so the runtime layer ships without compilers.
 If you also need `torchvision`, enable the pinned build by passing `--build-arg WITH_TORCHVISION=1` (or install the
-`0.19.1+cu124` wheel from the same CUDA index when working on the host).
+`0.21.0+cu124` wheel from the same CUDA index when working on the host).
 
 ##### Quick environment diagnostic
 

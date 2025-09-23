@@ -5,29 +5,29 @@ description = "Text-to-speech by Zyphra"
 readme = "README.md"
 requires-python = ">=3.10"
 dependencies = [
-    "setuptools==69.5.1",
-    "packaging==24.0",
+    "setuptools==75.8.0",
+    "packaging==24.2",
     "inflect==7.5.0",
     "kanjize==1.5.0",
     "numpy==2.2.2",
     "phonemizer==3.3.0",
-    "sudachidict-full==20241021",
+    "sudachidict-full==20250129",
     "sudachipy==0.6.10",
-    "transformers==4.48.1",
+    "transformers==4.48.3",
     "soundfile==0.13.1",
     "huggingface-hub==0.28.1",
     "gradio==5.15.0",
-    "pydantic==2.5.3",
-    "fastapi==0.110.0",
-    "uvicorn[standard]==0.27.1",
+    "pydantic==2.10.6",
+    "fastapi==0.115.8",
+    "uvicorn[standard]==0.34.0",
     "pydub==0.25.1",
     "accelerate==1.6.0",
 ]
 
 [project.optional-dependencies]
 cuda124 = [
-  "torch==2.4.1+cu124 ; platform_system == 'Linux'",
-  "torchaudio==2.4.1+cu124 ; platform_system == 'Linux'",
+  "torch==2.6.0+cu124 ; platform_system == 'Linux'",
+  "torchaudio==2.6.0+cu124 ; platform_system == 'Linux'",
 ]
 # These are technically optional,
 # but mamba-ssm is required to run hybrid models.

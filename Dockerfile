@@ -10,7 +10,7 @@ ARG UV_VERSION=0.8.19
 # MUST use the *devel* variant: compiles CUDA/C++ extensions (nvcc, headers).
 # Update digest with tools/docker/update_pytorch_digest.sh when refreshing base image
 # ========================================================
-FROM pytorch/pytorch:2.4.1-cuda12.4-cudnn9-devel AS mamba-builder
+FROM pytorch/pytorch:2.6.0-cuda12.4-cudnn9-devel AS mamba-builder
 ARG UV_VERSION
 SHELL ["/bin/bash", "-euxo", "pipefail", "-c"]
 
@@ -89,8 +89,8 @@ RUN --mount=type=cache,target=/root/.cache/uv,id=uv-cache-zonos-builder-05-torch
     uv pip install --system --no-cache-dir \
       --index-url ${TORCH_CUDA_INDEX_URL} \
       --extra-index-url ${PYPI_INDEX_URL} \
-      torch==2.4.1+cu124 \
-      torchaudio==2.4.1+cu124
+      torch==2.6.0+cu124 \
+      torchaudio==2.6.0+cu124
 
 RUN python - <<'PY'
 import json
@@ -148,7 +148,7 @@ RUN --mount=type=cache,target=/root/.cache/pip,id=pip-cache-zonos-builder-07-fla
 # Stage 1 — Base layer with Python and system deps (slimmer runtime)
 # MUST use the *runtime* variant: only needs shared libs to import wheels.
 # ========================================================
-FROM pytorch/pytorch:2.4.1-cuda12.4-cudnn9-runtime AS base
+FROM pytorch/pytorch:2.6.0-cuda12.4-cudnn9-runtime AS base
 ARG UV_VERSION
 SHELL ["/bin/bash", "-euxo", "pipefail", "-c"]
 
@@ -233,8 +233,8 @@ RUN --mount=type=cache,target=/root/.cache/uv,id=uv-cache-zonos-base-05-torch \
     uv pip install --system --no-cache-dir \
       --index-url ${TORCH_CUDA_INDEX_URL} \
       --extra-index-url ${PYPI_INDEX_URL} \
-      torch==2.4.1+cu124 \
-      torchaudio==2.4.1+cu124; \
+      torch==2.6.0+cu124 \
+      torchaudio==2.6.0+cu124; \
     python -m pip uninstall -y torchvision || true
 
 COPY --from=mamba-builder /tmp/torch_build.json /tmp/torch_build.json
