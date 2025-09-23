@@ -30,8 +30,8 @@ dependencies = [
 
 [project.optional-dependencies]
 cuda124 = [
-  "torch==2.6.0+cu124 ; platform_system == 'Linux'",
-  "torchaudio==2.6.0+cu124 ; platform_system == 'Linux'",
+  "torch==2.6.0+cu124",
+  "torchaudio==2.6.0+cu124",
 ]
 # These are technically optional,
 # but mamba-ssm is required to run hybrid models.

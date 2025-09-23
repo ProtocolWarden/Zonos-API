@@ -36,15 +36,7 @@ RUN --mount=type=cache,target=/root/.cache/uv,id=uv-cache-zonos-builder-install 
 # Bring manifests only (no source yet)
 COPY pyproject.toml uv.lock ./
 
-# 1) Install Torch stack explicitly (ABI anchor)
-RUN --mount=type=cache,target=/root/.cache/uv,id=uv-cache-zonos-builder-torch \
-    uv pip install --system --no-cache-dir \
-      --index-url ${TORCH_CUDA_INDEX_URL} \
-      --extra-index-url ${PYPI_INDEX_URL} \
-      torch==2.6.0+cu124 \
-      torchaudio==2.6.0+cu124
-
-# 2) Export the cuda124 set after torch is present
+# 1) Export the cuda124 set after torch is present
 RUN --mount=type=cache,target=/root/.cache/uv,id=uv-cache-zonos-builder-export \
     uv export --locked --extra cuda124 --format requirements-txt > /cuda.lock.txt
 
@@ -55,7 +47,7 @@ RUN --mount=type=cache,target=/root/.cache/uv,id=uv-cache-zonos-builder-torch \
       --extra-index-url ${PYPI_INDEX_URL} \
       -r /cuda.lock.txt
 
-# 3) Record torch build pair for runtime assert
+# 2) Record torch build pair for runtime assert
 RUN python - <<'PY'
 import json, torch, pathlib
 pathlib.Path('/torch_build.json').write_text(
