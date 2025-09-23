@@ -7,7 +7,7 @@ ARG UV_VERSION=0.8.19
 # ========================================================
 # Stage 0 — Build CUDA wheels against pinned torch (devel)
 # ========================================================
-FROM pytorch/pytorch:2.6.0-cuda12.4-cudnn9-devel AS builder
+FROM pytorch/pytorch:2.6.0-cuda12.4-cudnn9-devel@sha256:0cf3402e946b7c384ba943ee05c90b4c5a4a05227923921f2b0918c011cfaf56 AS builder
 ARG UV_VERSION
 SHELL ["/bin/bash", "-euxo", "pipefail", "-c"]
 
@@ -21,19 +21,24 @@ ENV DEBIAN_FRONTEND=noninteractive \
 WORKDIR /work
 
 # Build toolchain
-RUN apt-get update -q && \
-    apt-get install -y -q --no-install-recommends build-essential ninja-build curl git && \
+RUN --mount=type=cache,target=/var/cache/apt,id=apt-cache-zonos-builder \
+    rm -f /var/lib/apt/lists/lock /var/lib/dpkg/lock-frontend /var/lib/dpkg/lock || true; \
+    apt-get update -q; \
+    apt-get install -y -q --no-install-recommends build-essential ninja-build curl git; \
+    apt-get clean; \
     rm -rf /var/lib/apt/lists/*
 
 # uv
-RUN curl -LsSf "https://astral.sh/uv/${UV_VERSION}/install.sh" | sh && \
+RUN --mount=type=cache,target=/root/.cache/uv,id=uv-cache-zonos-builder-install \
+    curl -LsSf "https://astral.sh/uv/${UV_VERSION}/install.sh" | sh && \
     ln -sf /root/.local/bin/uv /usr/local/bin/uv && uv --version
 
 # Bring manifests only (no source yet)
 COPY pyproject.toml uv.lock ./
 
 # 1) Install the EXACT torch/torchaudio first (ABI anchor)
-RUN uv pip install --system --no-cache-dir \
+RUN --mount=type=cache,target=/root/.cache/uv,id=uv-cache-zonos-builder-torch \
+    uv pip install --system --no-cache-dir \
       --index-url ${TORCH_CUDA_INDEX_URL} \
       --extra-index-url ${PYPI_INDEX_URL} \
       torch==2.6.0+cu124 \
@@ -48,8 +53,10 @@ pathlib.Path('/torch_build.json').write_text(
 PY
 
 # 3) Export the compile extra and build wheels for CUDA extensions (no isolation!)
-RUN uv export --locked -E compile --format requirements-txt > /compile.lock.txt
-RUN PIP_NO_BUILD_ISOLATION=1 UV_NO_BUILD_ISOLATION=1 \
+RUN --mount=type=cache,target=/root/.cache/uv,id=uv-cache-zonos-builder-export \
+    uv export --locked -E compile --format requirements-txt > /compile.lock.txt
+RUN --mount=type=cache,target=/root/.cache/pip,id=pip-cache-zonos-builder-wheels \
+    PIP_NO_BUILD_ISOLATION=1 UV_NO_BUILD_ISOLATION=1 \
     python -m pip wheel --no-deps --no-binary=:all: \
       --index-url ${TORCH_CUDA_INDEX_URL} \
       --extra-index-url ${PYPI_INDEX_URL} \
@@ -75,7 +82,7 @@ PY
 # ========================================================
 # Stage 1 — Runtime (slim) layer
 # ========================================================
-FROM pytorch/pytorch:2.6.0-cuda12.4-cudnn9-runtime AS runtime
+FROM pytorch/pytorch:2.6.0-cuda12.4-cudnn9-runtime@sha256:77f17f843507062875ce8be2a6f76aa6aa3df7f9ef1e31d9d7432f4b0f563dee AS runtime
 ARG UV_VERSION
 SHELL ["/bin/bash", "-euxo", "pipefail", "-c"]
 
@@ -86,12 +93,16 @@ ENV DEBIAN_FRONTEND=noninteractive \
 WORKDIR /app
 
 # Runtime libs (no compiler)
-RUN apt-get update -q && \
-    apt-get install -y -q --no-install-recommends espeak-ng ffmpeg libsndfile1 curl ca-certificates && \
+RUN --mount=type=cache,target=/var/cache/apt,id=apt-cache-zonos-runtime \
+    rm -f /var/lib/apt/lists/lock /var/lib/dpkg/lock-frontend /var/lib/dpkg/lock || true; \
+    apt-get update -q; \
+    apt-get install -y -q --no-install-recommends espeak-ng ffmpeg libsndfile1 curl ca-certificates; \
+    apt-get clean; \
     rm -rf /var/lib/apt/lists/*
 
 # uv
-RUN curl -LsSf "https://astral.sh/uv/${UV_VERSION}/install.sh" | sh && \
+RUN --mount=type=cache,target=/root/.cache/uv,id=uv-cache-zonos-runtime-install \
+    curl -LsSf "https://astral.sh/uv/${UV_VERSION}/install.sh" | sh && \
     ln -sf /root/.local/bin/uv /usr/local/bin/uv && uv --version
 
 # Bring manifests + prebuilt wheels + torch-build marker
@@ -101,7 +112,8 @@ COPY --from=builder /wheels /wheels
 COPY pyproject.toml uv.lock ./
 
 # 1) Install EXACT torch/torchaudio to match builder ABI
-RUN uv pip install --system --no-cache-dir \
+RUN --mount=type=cache,target=/root/.cache/uv,id=uv-cache-zonos-runtime-torch \
+    uv pip install --system --no-cache-dir \
       --index-url ${TORCH_CUDA_INDEX_URL} \
       --extra-index-url ${PYPI_INDEX_URL} \
       torch==2.6.0+cu124 \
@@ -115,7 +127,9 @@ assert cur == b, f"Builder/runtime Torch mismatch: {b} != {cur}"
 PY
 
 # 2) Export runtime set from lockfile and install it
-RUN uv export --locked --format requirements-txt > /runtime.lock.txt && \
+RUN --mount=type=cache,target=/root/.cache/uv,id=uv-cache-zonos-runtime-export \
+    uv export --locked --format requirements-txt > /runtime.lock.txt
+RUN --mount=type=cache,target=/root/.cache/uv,id=uv-cache-zonos-runtime-deps \
     uv pip install --system --no-cache-dir \
       --index-url ${TORCH_CUDA_INDEX_URL} \
       --extra-index-url ${PYPI_INDEX_URL} \
@@ -123,14 +137,16 @@ RUN uv export --locked --format requirements-txt > /runtime.lock.txt && \
     python -m pip check
 
 # 3) Install the CUDA extensions from prebuilt wheels
-RUN uv pip install --system --no-cache-dir \
+RUN --mount=type=cache,target=/root/.cache/uv,id=uv-cache-zonos-runtime-wheels \
+    uv pip install --system --no-cache-dir \
       --find-links=/wheels \
       -r /compile.lock.txt && \
     python -m pip check
 
 # 4) Add project source and install editable without re-resolving deps
 COPY zonos ./zonos
-RUN uv pip install --system --no-cache-dir --no-deps -e .
+RUN --mount=type=cache,target=/root/.cache/uv,id=uv-cache-zonos-runtime-editable \
+    uv pip install --system --no-cache-dir --no-deps -e .
 
 # 5) ldd smoke test (no hard import)
 RUN python - <<'PY'
