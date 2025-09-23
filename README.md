@@ -261,27 +261,30 @@ We recommend using `pip` inside a virtual environment so the torch stack stays a
 python -m venv .venv
 source .venv/bin/activate
 python -m pip install --upgrade pip
-python -m pip install --index-url https://download.pytorch.org/whl/cu124 \
-  -c constraints/torch-cu124-mamba.txt \
-  torch==2.6.0+cu124 torchaudio==2.6.0+cu124
-python -m pip install -r requirements/runtime.txt
+# ensure the `uv` CLI is available (https://docs.astral.sh/uv/getting-started/)
+python -m pip install --index-url https://download.pytorch.org/whl/cu121 \
+  --extra-index-url https://pypi.org/simple \
+  torch==2.5.2+cu121 torchaudio==2.5.2+cu121
+uv export --locked --format requirements-txt > runtime.lock.txt
+python -m pip install -r runtime.lock.txt
 python -m pip install -e . --no-deps
 ```
 
-> Need `torchvision`? Uncomment the pinned line in `constraints/torch-cu124-mamba.txt` and append `torchvision==0.21.0+cu124` to the install command above so it is pulled from the same CUDA wheel index.
+> Need `torchvision`? Install the matching CUDA 12.1 wheel, e.g. `python -m pip install --index-url https://download.pytorch.org/whl/cu121 torchvision==0.20.1+cu121`.
 
-Hybrid checkpoints additionally need the CUDA extensions from `requirements/compile.txt`:
+Hybrid checkpoints additionally need the CUDA extensions from the `compile` extra:
 
 ```bash
-python -m pip install --no-build-isolation -r requirements/compile.txt
-# Avoid extras to keep dependency resolution inside the Docker build tooling.
+uv export --locked -E compile --format requirements-txt > compile.lock.txt
+python -m pip install --no-build-isolation -r compile.lock.txt
+# Avoid extras directly to keep dependency resolution inside the Docker build tooling.
 # python -m pip install .[compile]
 ```
 
 On host installs these extensions compile locally and therefore require a matching CUDA toolkit, compiler, and headers.
 Inside the Docker images they are prebuilt as wheels during the builder stage, so the runtime layer ships without compilers.
 If you also need `torchvision`, enable the pinned build by passing `--build-arg WITH_TORCHVISION=1` (or install the
-`0.21.0+cu124` wheel from the same CUDA index when working on the host).
+`0.20.1+cu121` wheel from the same CUDA index when working on the host).
 
 ##### Quick environment diagnostic
 
