@@ -38,7 +38,7 @@ COPY pyproject.toml uv.lock ./
 
 # 1) Export and install the Torch stack from the cuda124 extra (ABI anchor)
 RUN --mount=type=cache,target=/root/.cache/uv,id=uv-cache-zonos-builder-export \
-    uv export --locked -extra cuda124 --format requirements-txt > /cuda.lock.txt
+    uv export --locked --extra cuda124 --format requirements-txt > /cuda.lock.txt
 RUN --mount=type=cache,target=/root/.cache/uv,id=uv-cache-zonos-builder-torch \
     uv pip install --system --no-cache-dir \
       --index-url ${TORCH_CUDA_INDEX_URL} \
@@ -55,7 +55,7 @@ PY
 
 # 3) Export the compile extra and build wheels for CUDA extensions (no isolation!)
 RUN --mount=type=cache,target=/root/.cache/uv,id=uv-cache-zonos-builder-export \
-    uv export --locked -extra compile --format requirements-txt > /compile.lock.txt
+    uv export --locked --extra compile --format requirements-txt > /compile.lock.txt
 RUN --mount=type=cache,target=/root/.cache/pip,id=pip-cache-zonos-builder-wheels \
     PIP_NO_BUILD_ISOLATION=1 UV_NO_BUILD_ISOLATION=1 \
     python -m pip wheel --no-deps --no-binary=:all: \
