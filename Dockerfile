@@ -46,7 +46,7 @@ PY
 
 # 4) Export the compile extra and build wheels for CUDA extensions (no isolation!)
 RUN --mount=type=cache,target=/root/.cache/uv,id=uv-cache-zonos-builder-export \
-    uv export --locked --extra compile --format requirements-txt > /compile.lock.txt
+    uv export --python 3.11 --extra compile --format requirements-txt > /compile.lock.txt
 RUN --mount=type=cache,target=/root/.cache/pip,id=pip-cache-zonos-builder-wheels \
     PIP_NO_BUILD_ISOLATION=1 UV_NO_BUILD_ISOLATION=1 \
     python -m pip wheel --no-deps --no-binary=:all: \
@@ -99,7 +99,6 @@ RUN --mount=type=cache,target=/root/.cache/uv,id=uv-cache-zonos-runtime-install 
 
 # Bring manifests + prebuilt wheels + torch-build marker
 COPY --from=builder /torch_build.json /torch_build.json
-COPY --from=builder /cuda.lock.txt /cuda.lock.txt
 COPY --from=builder /compile.lock.txt /compile.lock.txt
 COPY --from=builder /wheels /wheels
 COPY pyproject.toml uv.lock ./
