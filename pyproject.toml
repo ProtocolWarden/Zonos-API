@@ -32,13 +32,10 @@ cuda124 = [
 # These are technically optional,
 # but mamba-ssm is required to run hybrid models.
 compile = [
-    "flash-attn==2.7.3",
-    "mamba-ssm==2.2.4",
     "causal-conv1d==1.5.0.post8",
+    "flash-attn==2.7.4.post1",
+    "mamba-ssm==2.2.4",
 ]
 
 [tool.setuptools.packages.find]
 include = ["zonos"]
-
-[tool.uv]
-no-build-isolation-package = ["flash-attn", "mamba-ssm", "causal-conv1d"]
