@@ -25,8 +25,6 @@ ENV CUDA_HOME=/usr/local/cuda \
 
 WORKDIR /tmp/mamba
 
-COPY constraints/torch-cu124-mamba.txt ./constraints/torch-cu124-mamba.txt
-
 # --- APT bootstrap (build essentials, ninja, curl for uv installer) -----------
 RUN --mount=type=cache,target=/var/cache/apt,id=apt-cache-zonos-builder-01-apt \
     \
@@ -89,7 +87,6 @@ RUN --mount=type=cache,target=/root/.cache/pip,id=pip-cache-zonos-builder-04-boo
 # --- Install pinned torch/torchaudio (prebuilt wheels via uv) -----------------
 RUN --mount=type=cache,target=/root/.cache/uv,id=uv-cache-zonos-builder-05-torch \
     uv pip install --system --no-cache-dir \
-      -c constraints/torch-cu124-mamba.txt \
       --index-url ${TORCH_CUDA_INDEX_URL} \
       --extra-index-url ${PYPI_INDEX_URL} \
       torch==2.6.0+cu124 \
@@ -115,7 +112,6 @@ RUN --mount=type=cache,target=/root/.cache/pip,id=pip-cache-zonos-builder-06-mam
     PIP_NO_BUILD_ISOLATION=1 MAMBA_FORCE_BUILD=TRUE \
     python -m pip wheel \
       --no-deps \
-      -c constraints/torch-cu124-mamba.txt \
       --index-url ${TORCH_CUDA_INDEX_URL} \
       --extra-index-url ${PYPI_INDEX_URL} \
       --no-binary=mamba-ssm \
@@ -141,7 +137,6 @@ RUN --mount=type=cache,target=/root/.cache/pip,id=pip-cache-zonos-builder-07-fla
     PIP_NO_BUILD_ISOLATION=1 \
     python -m pip wheel \
       --no-deps \
-      -c constraints/torch-cu124-mamba.txt \
       --index-url ${TORCH_CUDA_INDEX_URL} \
       --extra-index-url ${PYPI_INDEX_URL} \
       --no-binary=:all: \
@@ -167,29 +162,8 @@ LABEL built-by="Ctrl+C Ctrl+V DevOps - Thanks Chat" \
 
 WORKDIR /app
 
-COPY constraints/torch-cu124-mamba.txt ./constraints/torch-cu124-mamba.txt
-COPY requirements ./requirements
-
-# Bring lock + metadata to export constraints when exporting requirements.
+# Bring lock + metadata so uv export can materialize requirement sets on demand.
 COPY uv.lock pyproject.toml ./
-
-RUN --mount=type=cache,target=/root/.cache/req-scan,id=req-sanity-zonos-base-01-scan \
-    python - <<'PY'
-from pathlib import Path
-import re
-import sys
-
-text = Path('requirements/runtime.txt').read_text()
-pattern = re.compile(r"(git\+|git@|vcs)")
-
-suspicious = [line.strip() for line in text.splitlines() if pattern.search(line.lower())]
-
-if suspicious:
-    print('VCS-like deps in requirements/runtime.txt:', suspicious)
-    sys.exit(1)
-
-print('Requirements sanity: OK')
-PY
 
 RUN --mount=type=cache,target=/var/cache/apt,id=apt-cache-zonos-base-02-apt \
     \
@@ -257,7 +231,6 @@ RUN --mount=type=cache,target=/var/cache/apt,id=apt-cache-zonos-base-03-uv-insta
 
 RUN --mount=type=cache,target=/root/.cache/uv,id=uv-cache-zonos-base-05-torch \
     uv pip install --system --no-cache-dir \
-      -c constraints/torch-cu124-mamba.txt \
       --index-url ${TORCH_CUDA_INDEX_URL} \
       --extra-index-url ${PYPI_INDEX_URL} \
       torch==2.6.0+cu124 \
@@ -278,17 +251,21 @@ PY
 RUN --mount=type=cache,target=/root/.cache/uv,id=uv-cache-zonos-base-05a-uv-lock \
     uv lock --python 3.11
 
-# Export the lock to a pip-readable constraints file (from existing uv.lock)
+# Export the lock to a pip-readable requirements file (from existing uv.lock)
 # NOTE: --frozen and --locked are mutually exclusive. Use --locked to rely strictly on uv.lock.
 RUN --mount=type=cache,target=/root/.cache/uv,id=uv-cache-zonos-base-05b-uv-export \
-    uv export --locked --format requirements-txt > /tmp/constraints.lock.txt
+    uv export --locked --format requirements-txt > /tmp/runtime.lock.txt
 
-# Install normal runtime deps under both constraints files (lock + torch/cu124)
+# Export compile extra requirements for wheel installs.
+RUN --mount=type=cache,target=/root/.cache/uv,id=uv-cache-zonos-base-05c-uv-export-compile \
+    uv export --locked -E compile --format requirements-txt > /tmp/compile.lock.txt
+
+# Install normal runtime deps pinned by the exported lock file
 RUN --mount=type=cache,target=/root/.cache/uv,id=uv-cache-zonos-base-06-reqs \
     uv pip install --system --no-cache-dir \
-      -c /tmp/constraints.lock.txt \
-      -c constraints/torch-cu124-mamba.txt \
-      -r requirements/runtime.txt \
+      -r /tmp/runtime.lock.txt \
+      --index-url ${TORCH_CUDA_INDEX_URL} \
+      --extra-index-url ${PYPI_INDEX_URL} \
   && python -m pip check
 
 COPY --from=mamba-builder /tmp/wheels /tmp/wheels
@@ -307,13 +284,11 @@ for name in ("flash_attn-*.whl","causal_conv1d-*.whl"):
 PY
 RUN --mount=type=cache,target=/root/.cache/uv,id=uv-cache-zonos-base-07-localwheels \
     uv pip install --system --no-cache-dir \
-      -c /tmp/constraints.lock.txt \
+      -c /tmp/runtime.lock.txt \
       --index-url ${TORCH_CUDA_INDEX_URL} \
       --extra-index-url ${PYPI_INDEX_URL} \
       --find-links=/tmp/wheels \
-      mamba-ssm==2.2.4 \
-      flash-attn==2.7.3 \
-      causal-conv1d==1.5.0.post8 \
+      -r /tmp/compile.lock.txt \
   && python -m pip check
 
 RUN rm -rf /tmp/wheels || true
