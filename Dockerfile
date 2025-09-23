@@ -120,7 +120,7 @@ RUN --mount=type=cache,target=/root/.cache/pip,id=pip-cache-zonos-builder-06-mam
       --extra-index-url ${PYPI_INDEX_URL} \
       --no-binary=mamba-ssm \
       --wheel-dir /tmp/wheels \
-      mamba-ssm==2.2.5
+      mamba-ssm==2.2.4
 
 # Verify the built wheel actually contains the CUDA .so
 RUN python - <<'PY'
@@ -311,7 +311,7 @@ RUN --mount=type=cache,target=/root/.cache/uv,id=uv-cache-zonos-base-07-localwhe
       --index-url ${TORCH_CUDA_INDEX_URL} \
       --extra-index-url ${PYPI_INDEX_URL} \
       --find-links=/tmp/wheels \
-      mamba-ssm==2.2.5 \
+      mamba-ssm==2.2.4 \
       flash-attn==2.7.3 \
       causal-conv1d==1.5.0.post8 \
   && python -m pip check
@@ -386,6 +386,44 @@ try:
     print("mamba-ssm version:", importlib.metadata.version("mamba-ssm"))
 except importlib.metadata.PackageNotFoundError:
     print("mamba-ssm not installed?")
+PY
+
+# CUDA dependency ldd smoke-test: ensure the extension resolves core deps
+RUN python - <<'PY'
+import importlib.util, sys, subprocess, shlex
+
+
+def find_so(modname: str) -> str | None:
+    spec = importlib.util.find_spec(modname)
+    return getattr(spec, "origin", None) if spec else None
+
+
+so_path = find_so("selective_scan_cuda")
+if not so_path:
+    print("FATAL: selective_scan_cuda .so not found on sys.path")
+    sys.exit(1)
+
+print("selective_scan_cuda candidate:", so_path)
+cmd = f"ldd {shlex.quote(so_path)}"
+out = subprocess.check_output(cmd, shell=True, text=True, stderr=subprocess.STDOUT)
+print(out)
+
+# Allow missing libcuda.so.1 at build-time; require core libs to resolve
+required_ok = True
+must_have = ("libtorch_cuda.so", "libtorch.so", "libc10.so", "libcudart.so")
+for line in out.splitlines():
+    # format:    libname => /path (0x...)  OR libname => not found
+    if "=> not found" in line:
+        lib = line.strip().split()[0]
+        if lib == "libcuda.so.1":
+            continue  # expected at build-time
+        if any(lib.startswith(m) for m in must_have):
+            print(f"FATAL: required dependency missing: {lib}")
+            required_ok = False
+
+if not required_ok:
+    sys.exit(1)
+print("ldd sanity: OK (core deps resolved; libcuda will be provided at runtime)")
 PY
 
 # ========================================================
