@@ -46,7 +46,7 @@ RUN --mount=type=cache,target=/root/.cache/uv,id=uv-cache-zonos-builder-torch \
 
 # 2) Export the cuda124 set after torch is present
 RUN --mount=type=cache,target=/root/.cache/uv,id=uv-cache-zonos-builder-export \
-    UV_NO_BUILD_ISOLATION=1 uv export --locked --extra cuda124 --format requirements-txt > /cuda.lock.txt
+    uv export --locked --extra cuda124 --format requirements-txt > /cuda.lock.txt
 
 # Ensure the builder environment matches the exported lockfile
 RUN --mount=type=cache,target=/root/.cache/uv,id=uv-cache-zonos-builder-torch \
@@ -65,7 +65,7 @@ PY
 
 # 4) Export the compile extra and build wheels for CUDA extensions (no isolation!)
 RUN --mount=type=cache,target=/root/.cache/uv,id=uv-cache-zonos-builder-export \
-    UV_NO_BUILD_ISOLATION=1 uv export --locked --extra compile --format requirements-txt > /compile.lock.txt
+    uv export --locked --extra compile --format requirements-txt > /compile.lock.txt
 RUN --mount=type=cache,target=/root/.cache/pip,id=pip-cache-zonos-builder-wheels \
     PIP_NO_BUILD_ISOLATION=1 UV_NO_BUILD_ISOLATION=1 \
     python -m pip wheel --no-deps --no-binary=:all: \
