@@ -33,6 +33,9 @@ RUN --mount=type=cache,target=/root/.cache/uv,id=uv-cache-zonos-builder-install 
     curl -LsSf "https://astral.sh/uv/${UV_VERSION}/install.sh" | sh && \
     ln -sf /root/.local/bin/uv /usr/local/bin/uv && uv --version
 
+# keep torch visible to builds (already true), but upgrade build tools
+RUN python -m pip install -U pip setuptools wheel packaging
+
 # Bring manifests only (no source yet)
 COPY pyproject.toml uv.lock ./
 
