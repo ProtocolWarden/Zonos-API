@@ -122,9 +122,11 @@ RUN --mount=type=cache,target=/root/.cache/uv,id=uv-cache-zonos-runtime-deps \
       '.[ui]' && \
     python -m pip check
 
-# Ensure libtorch & vendored CUDA libs are discoverable
+# Ensure libtorch & vendored CUDA libs are discoverable via dynamic linker
 ENV TORCH_SITE=/opt/conda/lib/python3.11/site-packages/torch \
     TORCH_NV=/opt/conda/lib/python3.11/site-packages/torch/nvidia
+
+# Optional: keep LD_LIBRARY_PATH for extra safety
 ENV LD_LIBRARY_PATH=${TORCH_SITE}/lib:\
 ${TORCH_NV}/cuda_runtime/lib:\
 ${TORCH_NV}/cudnn/lib:\
@@ -137,7 +139,21 @@ ${TORCH_NV}/nvjitlink/lib:\
 ${TORCH_SITE}/cusparselt/lib:\
 /usr/local/cuda/lib64:/usr/local/cuda/targets/x86_64-linux/lib:${LD_LIBRARY_PATH}
 
-RUN echo "/usr/local/cuda/lib64" > /etc/ld.so.conf.d/cuda.conf && ldconfig
+# Register all relevant library paths with ld.so
+RUN printf "%s\n" \
+  "${TORCH_SITE}/lib" \
+  "${TORCH_NV}/cuda_runtime/lib" \
+  "${TORCH_NV}/cudnn/lib" \
+  "${TORCH_NV}/cublas/lib" \
+  "${TORCH_NV}/cusparse/lib" \
+  "${TORCH_NV}/cufft/lib" \
+  "${TORCH_NV}/curand/lib" \
+  "${TORCH_NV}/nccl/lib" \
+  "${TORCH_NV}/nvjitlink/lib" \
+  "${TORCH_SITE}/cusparselt/lib" \
+  "/usr/local/cuda/lib64" \
+  "/usr/local/cuda/targets/x86_64-linux/lib" \
+  > /etc/ld.so.conf.d/torch_cuda.conf && ldconfig
 
 # 3) Install the CUDA extensions from prebuilt wheels
 RUN --mount=type=cache,target=/root/.cache/uv,id=uv-cache-zonos-runtime-wheels \
@@ -153,25 +169,35 @@ RUN --mount=type=cache,target=/root/.cache/uv,id=uv-cache-zonos-runtime-editable
 
 # 5) ldd smoke test (no hard import)
 RUN python - <<'PY'
-import importlib.util, subprocess, shlex, sys
+import importlib.util, ctypes, sys, os
+
+# 1) Ensure the extension is import-discoverable
 spec = importlib.util.find_spec("selective_scan_cuda")
 if not spec or not getattr(spec, "origin", None):
     print("NOTE: selective_scan_cuda not found (hybrid disabled?)")
     sys.exit(0)
-so = spec.origin
-print("selective_scan_cuda .so:", so)
-out = subprocess.check_output(f"ldd {shlex.quote(so)}", shell=True, text=True, stderr=subprocess.STDOUT)
-print(out)
-# Allow missing libcuda at build time; require libtorch deps
-required = ("libtorch_cuda.so", "libtorch.so", "libc10.so", "libcudart.so")
-for line in out.splitlines():
-    if "=> not found" in line:
-        lib = line.strip().split()[0]
-        if lib == "libcuda.so.1":  # runtime provided by host
-            continue
-        if any(lib.startswith(m) for m in required):
-            raise SystemExit(f"Missing required dependency: {lib}")
-print("ldd sanity OK")
+
+# 2) Try to dlopen the critical libs directly
+required = [
+    "libtorch.so",
+    "libtorch_cuda.so",
+    "libc10.so",
+    "libcudart.so.12",
+]
+
+missing = []
+for lib in required:
+    try:
+        ctypes.CDLL(lib)
+        print(f"OK: {lib} loaded")
+    except OSError as e:
+        print(f"MISS: {lib} -> {e}")
+        missing.append(lib)
+
+# libcuda is provided by the host driver at runtime; don't enforce here.
+if missing:
+    raise SystemExit(f"Missing required dependency(s): {missing}")
+print("CDLL sanity OK")
 PY
 
 EXPOSE 8000
