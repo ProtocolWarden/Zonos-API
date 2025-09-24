@@ -114,7 +114,11 @@ COPY pyproject.toml uv.lock ./
 
 # 2) Export runtime set from lockfile and install it
 RUN --mount=type=cache,target=/root/.cache/uv,id=uv-cache-zonos-runtime-export \
-    uv export --python 3.11 --format requirements-txt > /runtime.lock.txt
+    uv export --locked --format requirements-txt > /runtime.lock.txt
+
+# before the runtime installs
+ENV PIP_ONLY_BINARY=:all:
+
 RUN --mount=type=cache,target=/root/.cache/uv,id=uv-cache-zonos-runtime-deps \
     uv pip install --system --no-cache-dir \
       --index-url ${TORCH_CUDA_INDEX_URL} \
