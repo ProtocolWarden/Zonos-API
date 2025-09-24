@@ -95,13 +95,19 @@ ENV DEBIAN_FRONTEND=noninteractive \
 
 WORKDIR /app
 
-# Runtime libs (no compiler)
+# Runtime libs (with compiler for Triton JIT)
 RUN --mount=type=cache,target=/var/cache/apt,id=apt-cache-zonos-runtime \
     rm -f /var/lib/apt/lists/lock /var/lib/dpkg/lock-frontend /var/lib/dpkg/lock || true; \
     apt-get update -q; \
-    apt-get install -y -q --no-install-recommends espeak-ng ffmpeg libsndfile1 curl ca-certificates; \
+    apt-get install -y -q --no-install-recommends \
+        espeak-ng ffmpeg libsndfile1 curl ca-certificates \
+        gcc g++ make \
+    ; \
     apt-get clean; \
     rm -rf /var/lib/apt/lists/*
+
+# Tell Triton which compiler to use
+ENV CC=/usr/bin/gcc CXX=/usr/bin/g++
 
 # uv
 RUN --mount=type=cache,target=/root/.cache/uv,id=uv-cache-zonos-runtime-install \
