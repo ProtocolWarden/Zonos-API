@@ -45,14 +45,19 @@ pathlib.Path('/torch_build.json').write_text(
 PY
 
 # 4) Export the compile extra and build wheels for CUDA extensions (no isolation!)
-RUN --mount=type=cache,target=/root/.cache/uv,id=uv-cache-zonos-builder-export \
-    uv export --python 3.11 --extra compile --format requirements-txt > /compile.lock.txt
+# list only the CUDA extension packages we need wheels for
+RUN printf "%s\n%s\n%s\n" \
+    "causal-conv1d==1.5.0.post8" \
+    "flash-attn==2.7.4.post1" \
+    "mamba-ssm==2.2.4" > /compile.pkgs.txt
+
+# build wheels ONLY for those (torch already present in the PyTorch devel image)
 RUN --mount=type=cache,target=/root/.cache/pip,id=pip-cache-zonos-builder-wheels \
     PIP_NO_BUILD_ISOLATION=1 UV_NO_BUILD_ISOLATION=1 \
     python -m pip wheel --no-deps --no-binary=:all: \
       --index-url ${TORCH_CUDA_INDEX_URL} \
       --extra-index-url ${PYPI_INDEX_URL} \
-      -r /compile.lock.txt \
+      -r /compile.pkgs.txt \
       -w /wheels
 
 # (Optional) sanity: ensure wheels have .so files (don’t import them)
@@ -99,13 +104,13 @@ RUN --mount=type=cache,target=/root/.cache/uv,id=uv-cache-zonos-runtime-install 
 
 # Bring manifests + prebuilt wheels + torch-build marker
 COPY --from=builder /torch_build.json /torch_build.json
-COPY --from=builder /compile.lock.txt /compile.lock.txt
+COPY --from=builder /compile.pkgs.txt /compile.pkgs.txt
 COPY --from=builder /wheels /wheels
 COPY pyproject.toml uv.lock ./
 
 # 2) Export runtime set from lockfile and install it
 RUN --mount=type=cache,target=/root/.cache/uv,id=uv-cache-zonos-runtime-export \
-    uv export --locked --format requirements-txt > /runtime.lock.txt
+    uv export --python 3.11 --format requirements-txt > /runtime.lock.txt
 RUN --mount=type=cache,target=/root/.cache/uv,id=uv-cache-zonos-runtime-deps \
     uv pip install --system --no-cache-dir \
       --index-url ${TORCH_CUDA_INDEX_URL} \
@@ -117,7 +122,7 @@ RUN --mount=type=cache,target=/root/.cache/uv,id=uv-cache-zonos-runtime-deps \
 RUN --mount=type=cache,target=/root/.cache/uv,id=uv-cache-zonos-runtime-wheels \
     uv pip install --system --no-cache-dir \
       --find-links=/wheels \
-      -r /compile.lock.txt && \
+      -r /compile.pkgs.txt && \
     python -m pip check
 
 # 4) Add project source and install editable without re-resolving deps

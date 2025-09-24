@@ -11,7 +11,6 @@ dependencies = [
     "accelerate==1.6.0",
     "einops==0.8.0",
     "fastapi==0.115.8",
-    "gradio==5.15.0",
     "huggingface-hub==0.28.1",
     "inflect==7.5.0",
     "kanjize==1.5.0",
@@ -36,6 +35,7 @@ compile = [
     "flash-attn==2.7.4.post1",
     "mamba-ssm==2.2.4",
 ]
+ui = ["gradio==5.21.0"]
 
 [tool.setuptools.packages.find]
 include = ["zonos"]
