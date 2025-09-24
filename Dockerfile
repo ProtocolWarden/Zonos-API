@@ -122,8 +122,21 @@ RUN --mount=type=cache,target=/root/.cache/uv,id=uv-cache-zonos-runtime-deps \
       '.[ui]' && \
     python -m pip check
 
-# ensure libtorch & cuda libs are discoverable
-ENV LD_LIBRARY_PATH=/opt/conda/lib/python3.11/site-packages/torch/lib:/usr/local/cuda/lib64:/usr/local/cuda/targets/x86_64-linux/lib:${LD_LIBRARY_PATH}
+# Ensure libtorch & vendored CUDA libs are discoverable
+ENV TORCH_SITE=/opt/conda/lib/python3.11/site-packages/torch \
+    TORCH_NV=/opt/conda/lib/python3.11/site-packages/torch/nvidia
+ENV LD_LIBRARY_PATH=${TORCH_SITE}/lib:\
+${TORCH_NV}/cuda_runtime/lib:\
+${TORCH_NV}/cudnn/lib:\
+${TORCH_NV}/cublas/lib:\
+${TORCH_NV}/cusparse/lib:\
+${TORCH_NV}/cufft/lib:\
+${TORCH_NV}/curand/lib:\
+${TORCH_NV}/nccl/lib:\
+${TORCH_NV}/nvjitlink/lib:\
+${TORCH_SITE}/cusparselt/lib:\
+/usr/local/cuda/lib64:/usr/local/cuda/targets/x86_64-linux/lib:${LD_LIBRARY_PATH}
+
 RUN echo "/usr/local/cuda/lib64" > /etc/ld.so.conf.d/cuda.conf && ldconfig
 
 # 3) Install the CUDA extensions from prebuilt wheels
