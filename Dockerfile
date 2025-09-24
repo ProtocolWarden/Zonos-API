@@ -112,18 +112,14 @@ COPY --from=builder /compile.pkgs.txt /compile.pkgs.txt
 COPY --from=builder /wheels /wheels
 COPY pyproject.toml uv.lock ./
 
-# 2) Export runtime set from lockfile and install it
-RUN --mount=type=cache,target=/root/.cache/uv,id=uv-cache-zonos-runtime-export \
-    uv export --locked --format requirements-txt > /runtime.lock.txt
-
-# before the runtime installs
+# 2) Install it
 ENV PIP_ONLY_BINARY=:all:
 
 RUN --mount=type=cache,target=/root/.cache/uv,id=uv-cache-zonos-runtime-deps \
     uv pip install --system --no-cache-dir \
       --index-url ${TORCH_CUDA_INDEX_URL} \
       --extra-index-url ${PYPI_INDEX_URL} \
-      -r /runtime.lock.txt && \
+      '.[ui]' && \
     python -m pip check
 
 # 3) Install the CUDA extensions from prebuilt wheels
