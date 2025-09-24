@@ -51,12 +51,13 @@ RUN printf "%s\n%s\n%s\n" \
     "flash-attn==2.7.4.post1" \
     "mamba-ssm==2.2.4" > /compile.pkgs.txt
 
+# before the wheel step (builder stage)
+ENV PIP_INDEX_URL=${TORCH_CUDA_INDEX_URL}
+ENV PIP_EXTRA_INDEX_URL=${PYPI_INDEX_URL}
+
 # build wheels ONLY for those (torch already present in the PyTorch devel image)
 RUN --mount=type=cache,target=/root/.cache/pip,id=pip-cache-zonos-builder-wheels \
-    PIP_NO_BUILD_ISOLATION=1 UV_NO_BUILD_ISOLATION=1 \
-    python -m pip wheel --no-deps --no-binary=:all: \
-      --index-url ${TORCH_CUDA_INDEX_URL} \
-      --extra-index-url ${PYPI_INDEX_URL} \
+    python -m pip wheel --no-deps --no-binary=:all: --no-build-isolation \
       -r /compile.pkgs.txt \
       -w /wheels
 
