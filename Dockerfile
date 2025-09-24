@@ -2,7 +2,9 @@
 # syntax=docker/dockerfile:1.4
 # ========================================================
 
+
 ARG UV_VERSION=0.8.19
+
 
 # ========================================================
 # Stage 0 — Build CUDA wheels against pinned torch (devel)
@@ -81,9 +83,9 @@ PY
 
 
 # ========================================================
-# Stage 1 — Runtime (slim) layer
+# Stage 1 — Dependency Layer
 # ========================================================
-FROM pytorch/pytorch:2.6.0-cuda12.4-cudnn9-runtime@sha256:77f17f843507062875ce8be2a6f76aa6aa3df7f9ef1e31d9d7432f4b0f563dee AS runtime
+FROM pytorch/pytorch:2.6.0-cuda12.4-cudnn9-runtime@sha256:77f17f843507062875ce8be2a6f76aa6aa3df7f9ef1e31d9d7432f4b0f563dee AS base
 ARG UV_VERSION
 SHELL ["/bin/bash", "-euxo", "pipefail", "-c"]
 
@@ -200,5 +202,17 @@ if missing:
 print("CDLL sanity OK")
 PY
 
+
+# ========================================================
+# Stage 2 — Runtime Layer
+# ========================================================
+FROM base AS runtime
+
+WORKDIR /app
+COPY . ./
 EXPOSE 8000
+
+# ========================================================
+# Entrypoint
+# ========================================================
 CMD ["python3", "main_zonos_tts_api.py"]
