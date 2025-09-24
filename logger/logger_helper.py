@@ -134,7 +134,7 @@ def get_logger(
         log_dir = Path(cfg.LOG_DIR)  # Directory for log files, set in config
         # Ensure the directory exists so file handlers do not fail
         log_dir.mkdir(parents=True, exist_ok=True)
-        info_log_file = log_dir / f"{logger_name}.info"
+        info_log_file = log_dir / f"{logger_name}.log"
         error_log_file = log_dir / f"{logger_name}.err"
 
         # Guarantee the log files exist even before the first write attempt.
