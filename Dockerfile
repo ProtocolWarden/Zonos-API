@@ -173,11 +173,6 @@ RUN --mount=type=cache,target=/root/.cache/uv,id=uv-cache-zonos-runtime-wheels \
       -r /compile.pkgs.txt && \
     python -m pip check
 
-# 4) Add project source and install editable without re-resolving deps
-COPY zonos ./zonos
-RUN --mount=type=cache,target=/root/.cache/uv,id=uv-cache-zonos-runtime-editable \
-    uv pip install --system --no-cache-dir --no-deps -e .
-
 # 5) ldd smoke test (no hard import)
 RUN python - <<'PY'
 import importlib.util, ctypes, sys, os
@@ -217,11 +212,25 @@ PY
 # ========================================================
 FROM base AS runtime
 
-WORKDIR /app
-COPY . ./
+ENV ZONOS_APP_ROOT=/workspace/zonos
+WORKDIR ${ZONOS_APP_ROOT}
 EXPOSE 8000
 
-# ========================================================
-# Entrypoint
-# ========================================================
-CMD ["python3", "main_zonos_tts_api.py"]
+RUN cat <<'BASH' >/usr/local/bin/zonos-entrypoint.sh
+#!/usr/bin/env bash
+set -euo pipefail
+
+APP_ROOT="${ZONOS_APP_ROOT:-/workspace/zonos}"
+MAIN="${APP_ROOT}/main_zonos_tts_api.py"
+
+if [[ ! -f "$MAIN" ]]; then
+  echo "[zonos] expected source tree at $APP_ROOT (main_zonos_tts_api.py not found)" >&2
+  ls -la "$APP_ROOT" >&2 || true
+  exit 2
+fi
+
+exec python3 "$MAIN" "$@"
+BASH
+RUN chmod +x /usr/local/bin/zonos-entrypoint.sh
+
+CMD ["zonos-entrypoint.sh"]
