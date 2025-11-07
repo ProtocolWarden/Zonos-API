@@ -59,9 +59,12 @@ RUN printf "%s\n%s\n%s\n" \
 # before the wheel step (builder stage)
 ENV PIP_INDEX_URL=${TORCH_CUDA_INDEX_URL}
 ENV PIP_EXTRA_INDEX_URL=${PYPI_INDEX_URL}
+ENV PIP_CACHE_DIR=/root/.cache/pip \
+    TMPDIR=/root/.cache/pip/tmp
 
 # build wheels ONLY for those (torch already present in the PyTorch devel image)
 RUN --mount=type=cache,target=/root/.cache/pip,id=pip-cache-zonos-builder-wheels \
+    mkdir -p "$TMPDIR" && \
     python -m pip wheel --no-deps --no-binary=:all: --no-build-isolation \
       -r /compile.pkgs.txt \
       -w /wheels
