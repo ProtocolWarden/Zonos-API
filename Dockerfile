@@ -231,13 +231,9 @@ if [[ ! -f "$MAIN" ]]; then
 fi
 
 # Windows hosts can mount CRLF scripts into /workspace/zonos; normalize them so
-# /usr/bin/env resolves correctly (some files are executable but lack .sh extensions).
+# /usr/bin/env resolves correctly for any text file.
 if command -v dos2unix >/dev/null 2>&1; then
-  while IFS= read -r -d '' script; do
-    dos2unix -q "$script" || true
-  done < <(
-    find "$APP_ROOT" -type f \( -name "*.sh" -o -name "*.bash" -o -perm /111 \) -print0
-  )
+  find "$APP_ROOT" -type f -print0 | xargs -0 dos2unix -q || true
 fi
 
 exec python3 "$MAIN" "$@"
