@@ -1,0 +1,13 @@
+*           text=auto eol=lf
+
+# Scripts & env
+*.sh        text eol=lf
+*.bash      text eol=lf
+*.env       text eol=lf
+Makefile    text eol=lf
+
+# Docker
+Dockerfile* text eol=lf
+
+# Python
+*.py        text eol=lf
