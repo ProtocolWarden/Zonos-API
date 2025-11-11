@@ -105,7 +105,6 @@ RUN --mount=type=cache,target=/var/cache/apt,id=apt-cache-zonos-runtime \
     apt-get install -y -q --no-install-recommends \
         espeak-ng ffmpeg libsndfile1 curl ca-certificates \
         gcc g++ make \
-        dos2unix \
     ; \
     apt-get clean; \
     rm -rf /var/lib/apt/lists/*
@@ -228,12 +227,6 @@ if [[ ! -f "$MAIN" ]]; then
   echo "[zonos] expected source tree at $APP_ROOT (main_zonos_tts_api.py not found)" >&2
   ls -la "$APP_ROOT" >&2 || true
   exit 2
-fi
-
-# Windows hosts can mount CRLF scripts into /workspace/zonos; normalize them so
-# /usr/bin/env resolves correctly for any text file.
-if command -v dos2unix >/dev/null 2>&1; then
-  find "$APP_ROOT" -type f -print0 | xargs -0 dos2unix -q || true
 fi
 
 exec python3 "$MAIN" "$@"
