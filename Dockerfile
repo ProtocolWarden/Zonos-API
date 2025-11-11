@@ -100,7 +100,7 @@ WORKDIR /app
 
 # Runtime libs (with compiler for Triton JIT)
 RUN --mount=type=cache,target=/var/cache/apt,id=apt-cache-zonos-runtime \
-    rm -f /var/lib/apt/lists/lock /var/lib/dpkg/lock-frontend /var/lib/dpkg/lock || true; \
+    rm -f /var/lib/apt/lists/lock /var/lib/dpkg/lock-frontend /var/lib/dpkg/lock /var/cache/apt/archives/lock || true; \
     apt-get update -q; \
     apt-get install -y -q --no-install-recommends \
         espeak-ng ffmpeg libsndfile1 curl ca-certificates \
