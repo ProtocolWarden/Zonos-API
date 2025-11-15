@@ -212,7 +212,7 @@ PY
 # ========================================================
 FROM base AS runtime
 
-ENV ZONOS_APP_ROOT=/workspace/zonos
+ENV ZONOS_APP_ROOT=/app/zonos
 WORKDIR ${ZONOS_APP_ROOT}
 EXPOSE 8000
 
@@ -220,7 +220,7 @@ RUN cat <<'BASH' >/usr/local/bin/zonos-entrypoint.sh
 #!/usr/bin/env bash
 set -euo pipefail
 
-APP_ROOT="${ZONOS_APP_ROOT:-/workspace/zonos}"
+APP_ROOT="${ZONOS_APP_ROOT:-/app/zonos}"
 MAIN="${APP_ROOT}/main_zonos_tts_api.py"
 
 if [[ ! -f "$MAIN" ]]; then
