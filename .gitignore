@@ -11,3 +11,9 @@ wheels/
 
 # Misc.
 .ipynb_checkpoints/
+
+# Local service logs
+log/
+
+# Local voice assets
+data/voice_storage/

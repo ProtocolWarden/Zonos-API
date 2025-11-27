@@ -59,9 +59,12 @@ RUN printf "%s\n%s\n%s\n" \
 # before the wheel step (builder stage)
 ENV PIP_INDEX_URL=${TORCH_CUDA_INDEX_URL}
 ENV PIP_EXTRA_INDEX_URL=${PYPI_INDEX_URL}
+ENV PIP_CACHE_DIR=/root/.cache/pip \
+    TMPDIR=/root/.cache/pip/tmp
 
 # build wheels ONLY for those (torch already present in the PyTorch devel image)
 RUN --mount=type=cache,target=/root/.cache/pip,id=pip-cache-zonos-builder-wheels \
+    mkdir -p "$TMPDIR" && \
     python -m pip wheel --no-deps --no-binary=:all: --no-build-isolation \
       -r /compile.pkgs.txt \
       -w /wheels
@@ -97,7 +100,7 @@ WORKDIR /app
 
 # Runtime libs (with compiler for Triton JIT)
 RUN --mount=type=cache,target=/var/cache/apt,id=apt-cache-zonos-runtime \
-    rm -f /var/lib/apt/lists/lock /var/lib/dpkg/lock-frontend /var/lib/dpkg/lock || true; \
+    rm -f /var/lib/apt/lists/lock /var/lib/dpkg/lock-frontend /var/lib/dpkg/lock /var/cache/apt/archives/lock || true; \
     apt-get update -q; \
     apt-get install -y -q --no-install-recommends \
         espeak-ng ffmpeg libsndfile1 curl ca-certificates \
@@ -170,11 +173,6 @@ RUN --mount=type=cache,target=/root/.cache/uv,id=uv-cache-zonos-runtime-wheels \
       -r /compile.pkgs.txt && \
     python -m pip check
 
-# 4) Add project source and install editable without re-resolving deps
-COPY zonos ./zonos
-RUN --mount=type=cache,target=/root/.cache/uv,id=uv-cache-zonos-runtime-editable \
-    uv pip install --system --no-cache-dir --no-deps -e .
-
 # 5) ldd smoke test (no hard import)
 RUN python - <<'PY'
 import importlib.util, ctypes, sys, os
@@ -214,11 +212,25 @@ PY
 # ========================================================
 FROM base AS runtime
 
-WORKDIR /app
-COPY . ./
+ENV ZONOS_APP_ROOT=/app/zonos
+WORKDIR ${ZONOS_APP_ROOT}
 EXPOSE 8000
 
-# ========================================================
-# Entrypoint
-# ========================================================
-CMD ["python3", "main_zonos_tts_api.py"]
+RUN cat <<'BASH' >/usr/local/bin/zonos-entrypoint.sh
+#!/usr/bin/env bash
+set -euo pipefail
+
+APP_ROOT="${ZONOS_APP_ROOT:-/app/zonos}"
+MAIN="${APP_ROOT}/main_zonos_tts_api.py"
+
+if [[ ! -f "$MAIN" ]]; then
+  echo "[zonos] expected source tree at $APP_ROOT (main_zonos_tts_api.py not found)" >&2
+  ls -la "$APP_ROOT" >&2 || true
+  exit 2
+fi
+
+exec python3 "$MAIN" "$@"
+BASH
+RUN chmod +x /usr/local/bin/zonos-entrypoint.sh
+
+CMD ["zonos-entrypoint.sh"]
