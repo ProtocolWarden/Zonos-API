@@ -21,6 +21,9 @@ import torch
 import traceback
 import torchaudio
 import multiprocessing
+import base64
+import queue
+import threading
 from io import BytesIO
 from typing import Dict, Optional, List, Union
 
@@ -315,12 +318,34 @@ async def create_speech(request: SpeechRequest):
             }.items() if v is not None
         } or {"min_p": 0.15}
 
+        start_time = time.time()
+        heartbeat_interval = float(os.environ.get("ZONOS_HEARTBEAT_INTERVAL", "30"))
+        last_heartbeat = start_time
+
+        def _heartbeat(_frame: torch.Tensor, step: int, total_steps: int) -> bool:
+            nonlocal last_heartbeat
+            now = time.time()
+            if now - last_heartbeat >= heartbeat_interval:
+                last_heartbeat = now
+                logger.info(
+                    "zonos_synth_heartbeat",
+                    extra={
+                        "voice": request.voice or "default",
+                        "elapsed_s": round(now - start_time, 2),
+                        "step": step,
+                        "total_steps": total_steps,
+                        "text_len": len(request.input or ""),
+                    },
+                )
+            return True
+
         codes = model.generate(
             prefix_conditioning=conditioning,
             max_new_tokens=86 * 30,
             cfg_scale=2.0,
             batch_size=1,
             sampling_params=sampling_params,
+            callback=_heartbeat,
         )
 
         wav_out = model.autoencoder.decode(codes).cpu().detach()
@@ -335,10 +360,178 @@ async def create_speech(request: SpeechRequest):
         torchaudio.save(buffer, wav_out, sr_out, format=request.response_format)
         buffer.seek(0)
 
+        logger.info(
+            "zonos_synth_complete",
+            extra={
+                "voice": request.voice or "default",
+                "elapsed_s": round(time.time() - start_time, 2),
+                "text_len": len(request.input or ""),
+            },
+        )
+
         return StreamingResponse(buffer, media_type=f"audio/{request.response_format}")
 
     except Exception:
         logger.exception("Error during speech synthesis")
+        raise HTTPException(
+            status_code=500,
+            detail={
+                "error": "Failed to generate speech",
+                "traceback": traceback.format_exc(),
+            },
+        )
+
+
+@app.post("/v1/audio/speech_stream")
+async def create_speech_stream(request: SpeechRequest):
+    """
+    Stream heartbeats during synthesis and return base64 audio when complete.
+    """
+    try:
+        requested_key = MODEL_SLOT_BY_ID.get(request.model)
+        if requested_key is None:
+            requested_key = "transformer" if "transformer" in request.model else "hybrid"
+        model = MODELS.get(requested_key)
+
+        if model is None:
+            raise HTTPException(
+                status_code=503,
+                detail=f"Requested model '{request.model}' is unavailable.",
+            )
+
+        if model.autoencoder is None:
+            raise HTTPException(
+                status_code=503,
+                detail="Autoencoder not initialized on the server.",
+            )
+
+        cond_kwargs = {
+            "text": request.input,
+            "language": request.language,
+            "voice_identifier": request.voice or "default",
+            "emotion": request.emotion,
+            "speed": request.speed,
+        }
+        if request.pitch_std is not None:
+            cond_kwargs["pitch_std"] = request.pitch_std
+        if request.speaking_rate is not None:
+            cond_kwargs["speaking_rate"] = request.speaking_rate
+        if request.fmax is not None:
+            cond_kwargs["fmax"] = request.fmax
+        if request.vqscore_8 is not None:
+            cond_kwargs["vqscore_8"] = request.vqscore_8
+        if request.dnsmos_ovrl is not None:
+            cond_kwargs["dnsmos_ovrl"] = request.dnsmos_ovrl
+        if request.speaker_noised is not None:
+            cond_kwargs["speaker_noised"] = request.speaker_noised
+
+        cond_dict = make_cond_dict(**cond_kwargs)
+        conditioning = model.prepare_conditioning(cond_dict)
+
+        sampling_params = {
+            k: v for k, v in {
+                "top_k": request.top_k,
+                "top_p": request.top_p,
+                "min_p": request.min_p,
+            }.items() if v is not None
+        } or {"min_p": 0.15}
+
+        heartbeat_interval = float(os.environ.get("ZONOS_HEARTBEAT_INTERVAL", "30"))
+        progress_queue: queue.Queue[dict] = queue.Queue()
+
+        def _heartbeat(_frame: torch.Tensor, step: int, total_steps: int) -> bool:
+            progress_queue.put({
+                "event": "progress",
+                "step": step,
+                "total_steps": total_steps,
+                "text_len": len(request.input or ""),
+                "voice": request.voice or "default",
+                "timestamp": time.time(),
+            })
+            return True
+
+        def _worker():
+            start_time = time.time()
+            heartbeat_state = {"last": start_time}
+            try:
+                # Kick off first heartbeat immediately.
+                progress_queue.put({
+                    "event": "start",
+                    "voice": request.voice or "default",
+                    "text_len": len(request.input or ""),
+                    "timestamp": start_time,
+                })
+
+                codes = model.generate(
+                    prefix_conditioning=conditioning,
+                    max_new_tokens=86 * 30,
+                    cfg_scale=2.0,
+                    batch_size=1,
+                    sampling_params=sampling_params,
+                    callback=lambda frame, step, total: (
+                        lambda now: (
+                            (
+                                heartbeat_state.__setitem__("last", now),
+                                progress_queue.put({
+                                    "event": "progress",
+                                    "step": step,
+                                    "total_steps": total,
+                                    "text_len": len(request.input or ""),
+                                    "voice": request.voice or "default",
+                                    "timestamp": now,
+                                }),
+                            )
+                        )
+                        if (now - heartbeat_state["last"]) >= heartbeat_interval
+                        else None
+                    )((time.time()))
+                    or True
+                )
+
+                wav_out = model.autoencoder.decode(codes).cpu().detach()
+                sr_out = model.autoencoder.sampling_rate
+
+                if wav_out.dim() > 2:
+                    wav_out = wav_out.squeeze()
+                if wav_out.dim() == 1:
+                    wav_out = wav_out.unsqueeze(0)
+
+                buffer = BytesIO()
+                torchaudio.save(buffer, wav_out, sr_out, format=request.response_format)
+                buffer.seek(0)
+                encoded = base64.b64encode(buffer.getvalue()).decode("ascii")
+
+                progress_queue.put({
+                    "event": "done",
+                    "voice": request.voice or "default",
+                    "elapsed_s": round(time.time() - start_time, 2),
+                    "text_len": len(request.input or ""),
+                    "audio_b64": encoded,
+                    "response_format": request.response_format,
+                })
+            except Exception:
+                progress_queue.put({
+                    "event": "error",
+                    "detail": "Failed to generate speech",
+                    "traceback": traceback.format_exc(),
+                })
+
+        worker = threading.Thread(target=_worker, daemon=True, name="zonos-speech-stream")
+        worker.start()
+
+        def _iter():
+            while True:
+                item = progress_queue.get()
+                yield (json.dumps(item) + "\n").encode("utf-8")
+                if item.get("event") in {"done", "error"}:
+                    break
+
+        return StreamingResponse(_iter(), media_type="application/json")
+
+    except HTTPException:
+        raise
+    except Exception:
+        logger.exception("Error during speech synthesis (stream)")
         raise HTTPException(
             status_code=500,
             detail={
