@@ -393,11 +393,16 @@ async def create_speech_stream(request: SpeechRequest):
             requested_key = "transformer" if "transformer" in request.model else "hybrid"
         model = MODELS.get(requested_key)
 
-        if model is None:
-            raise HTTPException(
-                status_code=503,
-                detail=f"Requested model '{request.model}' is unavailable.",
+        if model is None and requested_key == "hybrid":
+            reason = HYBRID_SKIP_REASON or "hybrid weights not loaded"
+            logger.warning(
+                "Hybrid model requested but not available (%s); falling back to transformer weights.",
+                reason,
             )
+            model = MODELS.get("transformer")
+
+        if model is None:
+            raise HTTPException(status_code=503, detail="Model weights are not loaded yet.")
 
         if model.autoencoder is None:
             raise HTTPException(
@@ -405,17 +410,43 @@ async def create_speech_stream(request: SpeechRequest):
                 detail="Autoencoder not initialized on the server.",
             )
 
+        speaking_rate = 15.0 * request.speed
+
+        emotion_tensor = None
+        if request.emotion:
+            emotion_tensor = torch.tensor(
+                [
+                    request.emotion.get("happiness", 1.0),
+                    request.emotion.get("sadness", 0.05),
+                    request.emotion.get("disgust", 0.05),
+                    request.emotion.get("fear", 0.05),
+                    request.emotion.get("surprise", 0.05),
+                    request.emotion.get("anger", 0.05),
+                    request.emotion.get("other", 0.1),
+                    request.emotion.get("neutral", 0.2),
+                ],
+                device=DEVICE,
+            ).unsqueeze(0)
+
+        speaker_embedding = get_voice_embedding(request.voice) if request.voice else None
+        if request.voice and speaker_embedding is None:
+            raise HTTPException(status_code=404, detail=f"Voice '{request.voice}' not found.")
+
         cond_kwargs = {
             "text": request.input,
             "language": request.language,
-            "voice_identifier": request.voice or "default",
-            "emotion": request.emotion,
-            "speed": request.speed,
+            "speaker": speaker_embedding,
+            "emotion": emotion_tensor,
+            "speaking_rate": (
+                request.speaking_rate
+                if request.speaking_rate is not None
+                else speaking_rate
+            ),
+            "device": DEVICE,
+            "unconditional_keys": [] if request.emotion else ["emotion"],
         }
         if request.pitch_std is not None:
             cond_kwargs["pitch_std"] = request.pitch_std
-        if request.speaking_rate is not None:
-            cond_kwargs["speaking_rate"] = request.speaking_rate
         if request.fmax is not None:
             cond_kwargs["fmax"] = request.fmax
         if request.vqscore_8 is not None:
