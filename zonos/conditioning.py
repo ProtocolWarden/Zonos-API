@@ -121,7 +121,9 @@ def _expand_number(m: re.Match) -> str:
         elif num % 100 == 0:
             return _inflect.number_to_words(num // 100) + " hundred"
         else:
-            return _inflect.number_to_words(num, andword="", zero="oh", group=2).replace(", ", " ")
+            return _inflect.number_to_words(num, andword="", zero="oh", group=2).replace(
+                ", ", " "
+            )
     else:
         return _inflect.number_to_words(num, andword="")
 
@@ -144,9 +146,7 @@ SPECIAL_TOKEN_IDS = [PAD_ID, UNK_ID, BOS_ID, EOS_ID]
 
 _punctuation = ';:,.!?¡¿—…"«»“”() *~-/\\&'
 _letters = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz"
-_letters_ipa = (
-    "ɑɐɒæɓʙβɔɕçɗɖðʤəɘɚɛɜɝɞɟʄɡɠɢʛɦɧħɥʜɨɪʝɭɬɫɮʟɱɯɰŋɳɲɴøɵɸθœɶʘɹɺɾɻʀʁɽʂʃʈʧʉʊʋⱱʌɣɤʍχʎʏʑʐʒʔʡʕʢǀǁǂǃˈˌːˑʼʴʰʱʲʷˠˤ˞↓↑→↗↘'̩'ᵻ"
-)
+_letters_ipa = "ɑɐɒæɓʙβɔɕçɗɖðʤəɘɚɛɜɝɞɟʄɡɠɢʛɦɧħɥʜɨɪʝɭɬɫɮʟɱɯɰŋɳɲɴøɵɸθœɶʘɹɺɾɻʀʁɽʂʃʈʧʉʊʋⱱʌɣɤʍχʎʏʑʐʒʔʡʕʢǀǁǂǃˈˌːˑʼʴʰʱʲʷˠˤ˞↓↑→↗↘'̩'ᵻ"
 
 symbols = [*_punctuation, *_letters, *_letters_ipa]
 _symbol_to_id = {s: i for i, s in enumerate(symbols, start=len(SPECIAL_TOKEN_IDS))}
@@ -171,7 +171,9 @@ def tokenize_phonemes(phonemes: list[str]) -> tuple[torch.Tensor, list[int]]:
 def normalize_jp_text(text: str, tokenizer=Dictionary(dict="full").create()) -> str:
     text = unicodedata.normalize("NFKC", text)
     text = re.sub(r"\d+", lambda m: number2kanji(int(m[0])), text)
-    final_text = " ".join([x.reading_form() for x in tokenizer.tokenize(text, SplitMode.A)])
+    final_text = " ".join(
+        [x.reading_form() for x in tokenizer.tokenize(text, SplitMode.A)]
+    )
     return final_text
 
 
@@ -219,7 +221,9 @@ def phonemize(texts: list[str], languages: list[str]) -> list[str]:
 class EspeakPhonemeConditioner(Conditioner):
     def __init__(self, output_dim: int, **kwargs):
         super().__init__(output_dim, **kwargs)
-        self.phoneme_embedder = nn.Embedding(len(SPECIAL_TOKEN_IDS) + len(symbols), output_dim)
+        self.phoneme_embedder = nn.Embedding(
+            len(SPECIAL_TOKEN_IDS) + len(symbols), output_dim
+        )
 
     def apply_cond(self, texts: list[str], languages: list[str]) -> torch.Tensor:
         """
@@ -256,8 +260,12 @@ class FourierConditioner(Conditioner):
 
     def apply_cond(self, x: torch.Tensor) -> torch.Tensor:
         assert x.shape[-1] == self.input_dim
-        x = (x - self.min_val) / (self.max_val - self.min_val)  # [batch_size, seq_len, input_dim]
-        f = 2 * torch.pi * x.to(self.weight.dtype) @ self.weight.T  # [batch_size, seq_len, output_dim // 2]
+        x = (x - self.min_val) / (
+            self.max_val - self.min_val
+        )  # [batch_size, seq_len, input_dim]
+        f = (
+            2 * torch.pi * x.to(self.weight.dtype) @ self.weight.T
+        )  # [batch_size, seq_len, output_dim // 2]
         return torch.cat([f.cos(), f.sin()], dim=-1)  # [batch_size, seq_len, output_dim]
 
 
@@ -270,7 +278,9 @@ class IntegerConditioner(Conditioner):
 
     def apply_cond(self, x: torch.Tensor) -> torch.Tensor:
         assert x.shape[-1] == 1
-        return self.int_embedder(x.squeeze(-1) - self.min_val)  # [batch_size, seq_len, output_dim]
+        return self.int_embedder(
+            x.squeeze(-1) - self.min_val
+        )  # [batch_size, seq_len, output_dim]
 
 
 class PassthroughConditioner(Conditioner):
@@ -291,19 +301,27 @@ _cond_cls_map = {
 
 
 def build_conditioners(conditioners: list[dict], output_dim: int) -> list[Conditioner]:
-    return [_cond_cls_map[config["type"]](output_dim, **config) for config in conditioners]
+    return [
+        _cond_cls_map[config["type"]](output_dim, **config) for config in conditioners
+    ]
 
 
 class PrefixConditioner(Conditioner):
     def __init__(self, config: PrefixConditionerConfig, output_dim: int):
         super().__init__(output_dim, "prefix", projection=config.projection)
-        self.conditioners = nn.ModuleList(build_conditioners(config.conditioners, output_dim))
+        self.conditioners = nn.ModuleList(
+            build_conditioners(config.conditioners, output_dim)
+        )
         self.norm = nn.LayerNorm(output_dim)
-        self.required_keys = {c.name for c in self.conditioners if c.uncond_vector is None}
+        self.required_keys = {
+            c.name for c in self.conditioners if c.uncond_vector is None
+        }
 
     def forward(self, cond_dict: dict) -> torch.Tensor:
         if not set(cond_dict).issuperset(self.required_keys):
-            raise ValueError(f"Missing required keys: {self.required_keys - set(cond_dict)}")
+            raise ValueError(
+                f"Missing required keys: {self.required_keys - set(cond_dict)}"
+            )
         conds = []
         for conditioner in self.conditioners:
             conds.append(conditioner(cond_dict.get(conditioner.name)))
@@ -331,33 +349,36 @@ def make_cond_dict(
     text: str = "It would be nice to have time for testing, indeed.",
     language: str = "en-us",
     speaker: torch.Tensor | None = None,
-    
     # Emotion vector from 0.0 to 1.0
     #   Is entangled with pitch_std because more emotion => more pitch variation
     #                     VQScore and DNSMOS because they favor neutral speech
     #
     #                       Happiness, Sadness, Disgust, Fear, Surprise, Anger, Other, Neutral
-    emotion: list[float] = [0.3077, 0.0256, 0.0256, 0.0256, 0.0256, 0.0256, 0.2564, 0.3077],
-
+    emotion: list[float] = [
+        0.3077,
+        0.0256,
+        0.0256,
+        0.0256,
+        0.0256,
+        0.0256,
+        0.2564,
+        0.3077,
+    ],
     # Maximum frequency (0 to 24000), should be 22050 or 24000 for 44.1 or 48 kHz audio
     # For voice cloning use 22050
     fmax: float = 22050.0,
-    
-    # Standard deviation for pitch (0 to 400), should be 
-    #   20-45 for normal speech, 
-    #   60-150 for expressive speech, 
+    # Standard deviation for pitch (0 to 400), should be
+    #   20-45 for normal speech,
+    #   60-150 for expressive speech,
     #   higher values => crazier samples
     pitch_std: float = 20.0,
-
     # Speaking rate in phonemes per minute (0 to 40). 30 is very fast, 10 is slow.
     speaking_rate: float = 15.0,
-
     # Target VoiceQualityScore for the generated speech (0.5 to 0.8).
     #   A list of values must be provided which represent each 1/8th of the audio.
     #   You should unset for expressive speech.
     # According to discord Chat this is only used for the hybrid model
     vqscore_8: list[float] = [0.78] * 8,
-
     # CTC target loss
     # Only used for the hybrid model
     ctc_loss: float = 0.0,
@@ -372,7 +393,9 @@ def make_cond_dict(
     A helper to build the 'cond_dict' that the model expects.
     By default, it will generate a random speaker embedding
     """
-    assert language.lower() in supported_language_codes, "Please pick a supported language"
+    assert (
+        language.lower() in supported_language_codes
+    ), "Please pick a supported language"
 
     language_code_to_id = {lang: i for i, lang in enumerate(supported_language_codes)}
 

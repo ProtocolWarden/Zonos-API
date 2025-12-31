@@ -39,7 +39,7 @@ from logger import logger
 # ///// Initialization /////////////////////////////////////////////////////////////////
 # //////////////////////////////////////////////////////////////////////////////////////
 
-multiprocessing.set_start_method('spawn', force=True)
+multiprocessing.set_start_method("spawn", force=True)
 
 app = FastAPI(title="Zonos API", description="OpenAI-compatible TTS API for Zonos")
 
@@ -99,7 +99,9 @@ def log_backend_versions() -> bool:
     try:
         import mamba_ssm  # type: ignore
 
-        logger.info("mamba-ssm %s import OK", getattr(mamba_ssm, "__version__", "unknown"))
+        logger.info(
+            "mamba-ssm %s import OK", getattr(mamba_ssm, "__version__", "unknown")
+        )
         return True
     except Exception:
         HYBRID_SKIP_REASON = "mamba-ssm import failed"
@@ -109,9 +111,11 @@ def log_backend_versions() -> bool:
         )
         return False
 
+
 # //////////////////////////////////////////////////////////////////////////////////////
 # ///// Helpers ////////////////////////////////////////////////////////////////////////
 # //////////////////////////////////////////////////////////////////////////////////////
+
 
 def load_models(skip_hybrid: bool = False):
     global HYBRID_SKIP_REASON
@@ -126,7 +130,9 @@ def load_models(skip_hybrid: bool = False):
         )
         logger.info("Transformer checkpoint loaded on %s.", device)
     except Exception:
-        logger.error("Failed to load transformer checkpoint:\n%s", traceback.format_exc())
+        logger.error(
+            "Failed to load transformer checkpoint:\n%s", traceback.format_exc()
+        )
         return
 
     if skip_hybrid:
@@ -154,21 +160,24 @@ def load_models(skip_hybrid: bool = False):
             traceback.format_exc(),
         )
 
+
 def load_voice_metadata():
     try:
         if os.path.exists(VOICE_METADATA_FILE):
-            with open(VOICE_METADATA_FILE, 'r') as f:
+            with open(VOICE_METADATA_FILE, "r") as f:
                 return json.load(f)
     except Exception:
         logger.error("Error loading voice metadata:\n%s", traceback.format_exc())
     return {}
 
+
 def save_voice_metadata(metadata):
     try:
-        with open(VOICE_METADATA_FILE, 'w') as f:
+        with open(VOICE_METADATA_FILE, "w") as f:
             json.dump(metadata, f, indent=2)
     except Exception:
         logger.error("Error saving voice metadata:\n%s", traceback.format_exc())
+
 
 def load_voice_embeddings():
     metadata = load_voice_metadata()
@@ -179,15 +188,21 @@ def load_voice_embeddings():
                 VOICE_CACHE[voice_id] = torch.load(tensor_path, map_location=DEVICE)
                 logger.info(f"Loaded voice: {info.get('name', voice_id)}")
         except Exception:
-            logger.error("Error loading voice embedding %s:\n%s", voice_id, traceback.format_exc())
+            logger.error(
+                "Error loading voice embedding %s:\n%s", voice_id, traceback.format_exc()
+            )
+
 
 def save_voice_embedding(voice_id, embedding):
     try:
         torch.save(embedding, os.path.join(VOICE_STORAGE_DIR, f"{voice_id}.pt"))
         return True
     except Exception:
-        logger.error("Error saving voice embedding %s:\n%s", voice_id, traceback.format_exc())
+        logger.error(
+            "Error saving voice embedding %s:\n%s", voice_id, traceback.format_exc()
+        )
         return False
+
 
 def get_voice_embedding(voice_identifier):
     metadata = load_voice_metadata()
@@ -203,12 +218,16 @@ def get_voice_embedding(voice_identifier):
                     VOICE_CACHE[voice_id] = embedding
                     return embedding
             except Exception:
-                logger.error("Error loading voice %s:\n%s", voice_id, traceback.format_exc())
+                logger.error(
+                    "Error loading voice %s:\n%s", voice_id, traceback.format_exc()
+                )
     return None
+
 
 # //////////////////////////////////////////////////////////////////////////////////////
 # ///// Request Models /////////////////////////////////////////////////////////////////
 # //////////////////////////////////////////////////////////////////////////////////////
+
 
 class SpeechRequest(BaseModel):
     model: str = Field(DEFAULT_MODEL_ID)
@@ -225,21 +244,27 @@ class SpeechRequest(BaseModel):
     pitch_std: Optional[float] = Field(None, ge=0.0, le=400.0)
     speaking_rate: Optional[float] = Field(None, ge=0.0, le=40.0)
     fmax: Optional[float] = Field(None, ge=0.0, le=24000.0)
-    vqscore_8: Optional[conlist(confloat(ge=0.5, le=0.8), min_length=8, max_length=8)] = None
+    vqscore_8: Optional[
+        conlist(confloat(ge=0.5, le=0.8), min_length=8, max_length=8)
+    ] = None
     dnsmos_ovrl: Optional[float] = Field(None, ge=1.0, le=5.0)
     speaker_noised: Optional[bool] = None
+
 
 class VoiceResponse(BaseModel):
     voice_id: str
     name: Optional[str]
     created: int
 
+
 class VoiceListResponse(BaseModel):
     voices: List[Dict[str, Union[str, int, None]]]
+
 
 # //////////////////////////////////////////////////////////////////////////////////////
 # ///// Endpoints //////////////////////////////////////////////////////////////////////
 # //////////////////////////////////////////////////////////////////////////////////////
+
 
 @app.post("/v1/audio/speech")
 async def create_speech(request: SpeechRequest):
@@ -253,7 +278,8 @@ async def create_speech(request: SpeechRequest):
                 )
             else:
                 logger.warning(
-                    "Unknown model id '%s'; defaulting to transformer weights", request.model
+                    "Unknown model id '%s'; defaulting to transformer weights",
+                    request.model,
                 )
         model = MODELS.get(requested_key)
 
@@ -266,32 +292,41 @@ async def create_speech(request: SpeechRequest):
             model = MODELS.get("transformer")
 
         if model is None:
-            raise HTTPException(status_code=503, detail="Model weights are not loaded yet.")
+            raise HTTPException(
+                status_code=503, detail="Model weights are not loaded yet."
+            )
         speaking_rate = 15.0 * request.speed
 
         emotion_tensor = None
         if request.emotion:
-            emotion_tensor = torch.tensor([
-                request.emotion.get("happiness", 1.0),
-                request.emotion.get("sadness", 0.05),
-                request.emotion.get("disgust", 0.05),
-                request.emotion.get("fear", 0.05),
-                request.emotion.get("surprise", 0.05),
-                request.emotion.get("anger", 0.05),
-                request.emotion.get("other", 0.1),
-                request.emotion.get("neutral", 0.2),
-            ], device=DEVICE).unsqueeze(0)
+            emotion_tensor = torch.tensor(
+                [
+                    request.emotion.get("happiness", 1.0),
+                    request.emotion.get("sadness", 0.05),
+                    request.emotion.get("disgust", 0.05),
+                    request.emotion.get("fear", 0.05),
+                    request.emotion.get("surprise", 0.05),
+                    request.emotion.get("anger", 0.05),
+                    request.emotion.get("other", 0.1),
+                    request.emotion.get("neutral", 0.2),
+                ],
+                device=DEVICE,
+            ).unsqueeze(0)
 
         speaker_embedding = get_voice_embedding(request.voice) if request.voice else None
         if request.voice and speaker_embedding is None:
-            raise HTTPException(status_code=404, detail=f"Voice '{request.voice}' not found.")
+            raise HTTPException(
+                status_code=404, detail=f"Voice '{request.voice}' not found."
+            )
 
         cond_kwargs = {
             "text": request.input,
             "language": request.language,
             "speaker": speaker_embedding,
             "emotion": emotion_tensor,
-            "speaking_rate": request.speaking_rate if request.speaking_rate is not None else speaking_rate,
+            "speaking_rate": request.speaking_rate
+            if request.speaking_rate is not None
+            else speaking_rate,
             "device": DEVICE,
             "unconditional_keys": [] if request.emotion else ["emotion"],
         }
@@ -311,11 +346,13 @@ async def create_speech(request: SpeechRequest):
         conditioning = model.prepare_conditioning(cond_dict)
 
         sampling_params = {
-            k: v for k, v in {
+            k: v
+            for k, v in {
                 "top_k": request.top_k,
                 "top_p": request.top_p,
                 "min_p": request.min_p,
-            }.items() if v is not None
+            }.items()
+            if v is not None
         } or {"min_p": 0.15}
 
         start_time = time.time()
@@ -402,7 +439,9 @@ async def create_speech_stream(request: SpeechRequest):
             model = MODELS.get("transformer")
 
         if model is None:
-            raise HTTPException(status_code=503, detail="Model weights are not loaded yet.")
+            raise HTTPException(
+                status_code=503, detail="Model weights are not loaded yet."
+            )
 
         if model.autoencoder is None:
             raise HTTPException(
@@ -430,7 +469,9 @@ async def create_speech_stream(request: SpeechRequest):
 
         speaker_embedding = get_voice_embedding(request.voice) if request.voice else None
         if request.voice and speaker_embedding is None:
-            raise HTTPException(status_code=404, detail=f"Voice '{request.voice}' not found.")
+            raise HTTPException(
+                status_code=404, detail=f"Voice '{request.voice}' not found."
+            )
 
         cond_kwargs = {
             "text": request.input,
@@ -460,25 +501,29 @@ async def create_speech_stream(request: SpeechRequest):
         conditioning = model.prepare_conditioning(cond_dict)
 
         sampling_params = {
-            k: v for k, v in {
+            k: v
+            for k, v in {
                 "top_k": request.top_k,
                 "top_p": request.top_p,
                 "min_p": request.min_p,
-            }.items() if v is not None
+            }.items()
+            if v is not None
         } or {"min_p": 0.15}
 
         heartbeat_interval = float(os.environ.get("ZONOS_HEARTBEAT_INTERVAL", "30"))
         progress_queue: queue.Queue[dict] = queue.Queue()
 
         def _heartbeat(_frame: torch.Tensor, step: int, total_steps: int) -> bool:
-            progress_queue.put({
-                "event": "progress",
-                "step": step,
-                "total_steps": total_steps,
-                "text_len": len(request.input or ""),
-                "voice": request.voice or "default",
-                "timestamp": time.time(),
-            })
+            progress_queue.put(
+                {
+                    "event": "progress",
+                    "step": step,
+                    "total_steps": total_steps,
+                    "text_len": len(request.input or ""),
+                    "voice": request.voice or "default",
+                    "timestamp": time.time(),
+                }
+            )
             return True
 
         def _worker():
@@ -486,12 +531,14 @@ async def create_speech_stream(request: SpeechRequest):
             heartbeat_state = {"last": start_time}
             try:
                 # Kick off first heartbeat immediately.
-                progress_queue.put({
-                    "event": "start",
-                    "voice": request.voice or "default",
-                    "text_len": len(request.input or ""),
-                    "timestamp": start_time,
-                })
+                progress_queue.put(
+                    {
+                        "event": "start",
+                        "voice": request.voice or "default",
+                        "text_len": len(request.input or ""),
+                        "timestamp": start_time,
+                    }
+                )
 
                 codes = model.generate(
                     prefix_conditioning=conditioning,
@@ -503,20 +550,22 @@ async def create_speech_stream(request: SpeechRequest):
                         lambda now: (
                             (
                                 heartbeat_state.__setitem__("last", now),
-                                progress_queue.put({
-                                    "event": "progress",
-                                    "step": step,
-                                    "total_steps": total,
-                                    "text_len": len(request.input or ""),
-                                    "voice": request.voice or "default",
-                                    "timestamp": now,
-                                }),
+                                progress_queue.put(
+                                    {
+                                        "event": "progress",
+                                        "step": step,
+                                        "total_steps": total,
+                                        "text_len": len(request.input or ""),
+                                        "voice": request.voice or "default",
+                                        "timestamp": now,
+                                    }
+                                ),
                             )
                         )
                         if (now - heartbeat_state["last"]) >= heartbeat_interval
                         else None
                     )((time.time()))
-                    or True
+                    or True,
                 )
 
                 wav_out = model.autoencoder.decode(codes).cpu().detach()
@@ -532,22 +581,28 @@ async def create_speech_stream(request: SpeechRequest):
                 buffer.seek(0)
                 encoded = base64.b64encode(buffer.getvalue()).decode("ascii")
 
-                progress_queue.put({
-                    "event": "done",
-                    "voice": request.voice or "default",
-                    "elapsed_s": round(time.time() - start_time, 2),
-                    "text_len": len(request.input or ""),
-                    "audio_b64": encoded,
-                    "response_format": request.response_format,
-                })
+                progress_queue.put(
+                    {
+                        "event": "done",
+                        "voice": request.voice or "default",
+                        "elapsed_s": round(time.time() - start_time, 2),
+                        "text_len": len(request.input or ""),
+                        "audio_b64": encoded,
+                        "response_format": request.response_format,
+                    }
+                )
             except Exception:
-                progress_queue.put({
-                    "event": "error",
-                    "detail": "Failed to generate speech",
-                    "traceback": traceback.format_exc(),
-                })
+                progress_queue.put(
+                    {
+                        "event": "error",
+                        "detail": "Failed to generate speech",
+                        "traceback": traceback.format_exc(),
+                    }
+                )
 
-        worker = threading.Thread(target=_worker, daemon=True, name="zonos-speech-stream")
+        worker = threading.Thread(
+            target=_worker, daemon=True, name="zonos-speech-stream"
+        )
         worker.start()
 
         def _iter():
@@ -570,6 +625,7 @@ async def create_speech_stream(request: SpeechRequest):
                 "traceback": traceback.format_exc(),
             },
         )
+
 
 @app.post("/v1/audio/voice")
 async def create_voice(file: UploadFile = File(...), name: Optional[str] = Form(None)):
@@ -600,13 +656,17 @@ async def create_voice(file: UploadFile = File(...), name: Optional[str] = Form(
             },
         )
 
+
 @app.get("/v1/audio/voices")
 async def list_voices():
     metadata = load_voice_metadata()
-    return VoiceListResponse(voices=[
-        {"voice_id": vid, "name": info.get("name"), "created": info.get("created")}
-        for vid, info in metadata.items()
-    ])
+    return VoiceListResponse(
+        voices=[
+            {"voice_id": vid, "name": info.get("name"), "created": info.get("created")}
+            for vid, info in metadata.items()
+        ]
+    )
+
 
 @app.get("/v1/audio/models")
 async def list_models():
@@ -626,12 +686,15 @@ async def list_models():
 
     return {"models": models}
 
+
 @app.on_event("startup")
 async def startup_event():
     hybrid_ready = log_backend_versions()
     load_models(skip_hybrid=not hybrid_ready)
     load_voice_embeddings()
 
+
 if __name__ == "__main__":
     import uvicorn
+
     uvicorn.run(app, host="0.0.0.0", port=8000)

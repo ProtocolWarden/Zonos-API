@@ -9,4 +9,6 @@ def apply_delay_pattern(codes: torch.Tensor, mask_token: int):
 
 def revert_delay_pattern(codes: torch.Tensor):
     _, n_q, seq_len = codes.shape
-    return torch.stack([codes[:, k, k + 1 : seq_len - n_q + k + 1] for k in range(n_q)], dim=1)
+    return torch.stack(
+        [codes[:, k, k + 1 : seq_len - n_q + k + 1] for k in range(n_q)], dim=1
+    )

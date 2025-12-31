@@ -66,9 +66,13 @@ class SimAMBasicBlock(nn.Module):
 
     def __init__(self, ConvLayer, NormLayer, in_planes, planes, stride=1, block_id=1):
         super(SimAMBasicBlock, self).__init__()
-        self.conv1 = ConvLayer(in_planes, planes, kernel_size=3, stride=stride, padding=1, bias=False)
+        self.conv1 = ConvLayer(
+            in_planes, planes, kernel_size=3, stride=stride, padding=1, bias=False
+        )
         self.bn1 = NormLayer(planes)
-        self.conv2 = ConvLayer(planes, planes, kernel_size=3, stride=1, padding=1, bias=False)
+        self.conv2 = ConvLayer(
+            planes, planes, kernel_size=3, stride=1, padding=1, bias=False
+        )
         self.bn2 = NormLayer(planes)
         self.relu = nn.ReLU(inplace=True)
         self.sigmoid = nn.Sigmoid()
@@ -76,7 +80,13 @@ class SimAMBasicBlock(nn.Module):
         self.downsample = nn.Sequential()
         if stride != 1 or in_planes != self.expansion * planes:
             self.downsample = nn.Sequential(
-                ConvLayer(in_planes, self.expansion * planes, kernel_size=1, stride=stride, bias=False),
+                ConvLayer(
+                    in_planes,
+                    self.expansion * planes,
+                    kernel_size=1,
+                    stride=stride,
+                    bias=False,
+                ),
                 NormLayer(self.expansion * planes),
             )
 
@@ -101,16 +111,26 @@ class BasicBlock(nn.Module):
 
     def __init__(self, ConvLayer, NormLayer, in_planes, planes, stride=1, block_id=1):
         super(BasicBlock, self).__init__()
-        self.conv1 = ConvLayer(in_planes, planes, kernel_size=3, stride=stride, padding=1, bias=False)
+        self.conv1 = ConvLayer(
+            in_planes, planes, kernel_size=3, stride=stride, padding=1, bias=False
+        )
         self.bn1 = NormLayer(planes)
-        self.conv2 = ConvLayer(planes, planes, kernel_size=3, stride=1, padding=1, bias=False)
+        self.conv2 = ConvLayer(
+            planes, planes, kernel_size=3, stride=1, padding=1, bias=False
+        )
         self.bn2 = NormLayer(planes)
         self.relu = nn.ReLU(inplace=True)
 
         self.downsample = nn.Sequential()
         if stride != 1 or in_planes != self.expansion * planes:
             self.downsample = nn.Sequential(
-                ConvLayer(in_planes, self.expansion * planes, kernel_size=1, stride=stride, bias=False),
+                ConvLayer(
+                    in_planes,
+                    self.expansion * planes,
+                    kernel_size=1,
+                    stride=stride,
+                    bias=False,
+                ),
                 NormLayer(self.expansion * planes),
             )
 
@@ -129,15 +149,25 @@ class Bottleneck(nn.Module):
         super(Bottleneck, self).__init__()
         self.conv1 = nn.Conv2d(in_planes, planes, kernel_size=1, bias=False)
         self.bn1 = nn.BatchNorm2d(planes)
-        self.conv2 = nn.Conv2d(planes, planes, kernel_size=3, stride=stride, padding=1, bias=False)
+        self.conv2 = nn.Conv2d(
+            planes, planes, kernel_size=3, stride=stride, padding=1, bias=False
+        )
         self.bn2 = nn.BatchNorm2d(planes)
-        self.conv3 = nn.Conv2d(planes, self.expansion * planes, kernel_size=1, bias=False)
+        self.conv3 = nn.Conv2d(
+            planes, self.expansion * planes, kernel_size=1, bias=False
+        )
         self.bn3 = nn.BatchNorm2d(self.expansion * planes)
 
         self.shortcut = nn.Sequential()
         if stride != 1 or in_planes != self.expansion * planes:
             self.shortcut = nn.Sequential(
-                nn.Conv2d(in_planes, self.expansion * planes, kernel_size=1, stride=stride, bias=False),
+                nn.Conv2d(
+                    in_planes,
+                    self.expansion * planes,
+                    kernel_size=1,
+                    stride=stride,
+                    bias=False,
+                ),
                 nn.BatchNorm2d(self.expansion * planes),
             )
 
@@ -167,19 +197,38 @@ class ResNet(nn.Module):
 
         self.in_planes = in_planes
 
-        self.conv1 = self.ConvLayer(in_ch, in_planes, kernel_size=3, stride=1, padding=1, bias=False)
+        self.conv1 = self.ConvLayer(
+            in_ch, in_planes, kernel_size=3, stride=1, padding=1, bias=False
+        )
         self.bn1 = self.NormLayer(in_planes)
         self.relu = nn.ReLU(inplace=True)
-        self.layer1 = self._make_layer(block, in_planes, num_blocks[0], stride=1, block_id=1)
-        self.layer2 = self._make_layer(block, in_planes * 2, num_blocks[1], stride=2, block_id=2)
-        self.layer3 = self._make_layer(block, in_planes * 4, num_blocks[2], stride=2, block_id=3)
-        self.layer4 = self._make_layer(block, in_planes * 8, num_blocks[3], stride=2, block_id=4)
+        self.layer1 = self._make_layer(
+            block, in_planes, num_blocks[0], stride=1, block_id=1
+        )
+        self.layer2 = self._make_layer(
+            block, in_planes * 2, num_blocks[1], stride=2, block_id=2
+        )
+        self.layer3 = self._make_layer(
+            block, in_planes * 4, num_blocks[2], stride=2, block_id=3
+        )
+        self.layer4 = self._make_layer(
+            block, in_planes * 8, num_blocks[3], stride=2, block_id=4
+        )
 
     def _make_layer(self, block, planes, num_blocks, stride, block_id=1):
         strides = [stride] + [1] * (num_blocks - 1)
         layers = []
         for stride in strides:
-            layers.append(block(self.ConvLayer, self.NormLayer, self.in_planes, planes, stride, block_id))
+            layers.append(
+                block(
+                    self.ConvLayer,
+                    self.NormLayer,
+                    self.in_planes,
+                    planes,
+                    stride,
+                    block_id,
+                )
+            )
             self.in_planes = planes * block.expansion
         return nn.Sequential(*layers)
 
@@ -252,7 +301,15 @@ class Bottle2neck(nn.Module):
         bns = []
         num_pad = math.floor(kernel_size / 2) * dilation
         for i in range(self.nums):
-            convs.append(nn.Conv1d(width, width, kernel_size=kernel_size, dilation=dilation, padding=num_pad))
+            convs.append(
+                nn.Conv1d(
+                    width,
+                    width,
+                    kernel_size=kernel_size,
+                    dilation=dilation,
+                    padding=num_pad,
+                )
+            )
             bns.append(nn.BatchNorm1d(width))
         self.convs = nn.ModuleList(convs)
         self.bns = nn.ModuleList(bns)
@@ -335,7 +392,9 @@ class ECAPA_TDNN(nn.Module):
             (
                 x,
                 torch.mean(x, dim=2, keepdim=True).repeat(1, 1, t),
-                torch.sqrt(torch.var(x, dim=2, keepdim=True).clamp(min=1e-4)).repeat(1, 1, t),
+                torch.sqrt(torch.var(x, dim=2, keepdim=True).clamp(min=1e-4)).repeat(
+                    1, 1, t
+                ),
             ),
             dim=1,
         )
@@ -354,12 +413,18 @@ class ECAPA_TDNN(nn.Module):
 
 
 class SpeakerEmbedding(nn.Module):
-    def __init__(self, ckpt_path: str = "ResNet293_SimAM_ASP_base.pt", device: str = DEFAULT_DEVICE):
+    def __init__(
+        self,
+        ckpt_path: str = "ResNet293_SimAM_ASP_base.pt",
+        device: str = DEFAULT_DEVICE,
+    ):
         super().__init__()
         self.device = device
         with torch.device(device):
             self.model = ResNet293_based()
-            state_dict = torch.load(ckpt_path, weights_only=True, mmap=True, map_location="cpu")
+            state_dict = torch.load(
+                ckpt_path, weights_only=True, mmap=True, map_location="cpu"
+            )
             self.model.load_state_dict(state_dict)
             self.model.featCal = logFbankCal()
 
@@ -402,7 +467,9 @@ class SpeakerEmbeddingLDA(nn.Module):
             self.model = SpeakerEmbedding(spk_model_path, device)
             lda_sd = torch.load(lda_spk_model_path, weights_only=True)
             out_features, in_features = lda_sd["weight"].shape
-            self.lda = nn.Linear(in_features, out_features, bias=True, dtype=torch.float32)
+            self.lda = nn.Linear(
+                in_features, out_features, bias=True, dtype=torch.float32
+            )
             self.lda.load_state_dict(lda_sd)
 
         self.requires_grad_(False).eval()
