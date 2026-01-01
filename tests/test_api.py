@@ -206,3 +206,50 @@ def test_returns_traceback_on_error(monkeypatch):
     detail = response.json()["detail"]
     assert detail["error"] == "Failed to generate speech"
     assert "RuntimeError: boom" in detail["traceback"]
+
+
+def test_healthz_not_ready_when_models_missing(monkeypatch):
+    monkeypatch.setattr(
+        api,
+        "MODELS",
+        {"transformer": None, "hybrid": None},
+    )
+    monkeypatch.setattr(api, "HYBRID_REQUIRED", True)
+    monkeypatch.setattr(api, "HYBRID_SKIP_REASON", None)
+    client = TestClient(api.app)
+    response = client.get("/healthz")
+    assert response.status_code == 503
+    payload = response.json()
+    assert payload["status"] == "not_ready"
+    assert payload["models"]["total"] >= 1
+    assert payload["models"]["ready"] == 0
+    assert "transformer" in payload["required"]
+
+
+def test_healthz_ready_when_required_models_loaded(monkeypatch):
+    fake_model = object()
+    monkeypatch.setattr(
+        api,
+        "MODELS",
+        {"transformer": fake_model, "hybrid": fake_model},
+    )
+    monkeypatch.setattr(api, "HYBRID_REQUIRED", True)
+    client = TestClient(api.app)
+    response = client.get("/healthz")
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["status"] == "ready"
+    assert payload["models"]["ready"] == payload["models"]["total"]
+    assert set(payload["required"]) == {"transformer", "hybrid"}
+
+
+def test_livez_always_ok(monkeypatch):
+    monkeypatch.setattr(
+        api,
+        "MODELS",
+        {"transformer": None, "hybrid": None},
+    )
+    client = TestClient(api.app)
+    response = client.get("/livez")
+    assert response.status_code == 200
+    assert response.json()["status"] == "alive"

@@ -28,7 +28,7 @@ from io import BytesIO
 from typing import Dict, Optional, List, Union
 
 from fastapi import FastAPI, File, UploadFile, HTTPException, Form
-from fastapi.responses import StreamingResponse
+from fastapi.responses import JSONResponse, StreamingResponse
 from pydantic import BaseModel, Field, conlist, confloat
 
 from zonos.model import Zonos
@@ -53,6 +53,16 @@ DEFAULT_MODEL_ID = TRANSFORMER_REPO_ID
 
 MODELS = {"transformer": None, "hybrid": None}
 HYBRID_SKIP_REASON: Optional[str] = None
+
+
+def _bool_env(name: str, default: bool) -> bool:
+    value = os.environ.get(name)
+    if value is None:
+        return default
+    return value.strip().lower() in {"1", "true", "yes", "on"}
+
+
+HYBRID_REQUIRED = _bool_env("ZONOS_REQUIRE_HYBRID", False)
 VOICE_STORAGE_DIR = os.environ.get("VOICE_STORAGE_DIR", "data/voice_storage")
 VOICE_METADATA_FILE = os.path.join(VOICE_STORAGE_DIR, "voice_metadata.json")
 VOICE_CACHE: Dict[str, torch.Tensor] = {}
@@ -137,7 +147,10 @@ def load_models(skip_hybrid: bool = False):
 
     if skip_hybrid:
         if HYBRID_SKIP_REASON is None:
-            HYBRID_SKIP_REASON = "skipped by configuration"
+            if HYBRID_REQUIRED:
+                HYBRID_SKIP_REASON = "hybrid required but unavailable"
+            else:
+                HYBRID_SKIP_REASON = "skipped by configuration"
         logger.warning(
             "Skipping hybrid checkpoint load because mamba-ssm is unavailable (%s).",
             HYBRID_SKIP_REASON,
@@ -222,6 +235,56 @@ def get_voice_embedding(voice_identifier):
                     "Error loading voice %s:\n%s", voice_id, traceback.format_exc()
                 )
     return None
+
+
+def _required_model_slots() -> list[str]:
+    slots = list(MODELS.keys())
+    if not slots:
+        return []
+    if not HYBRID_REQUIRED and "hybrid" in slots:
+        slots = [slot for slot in slots if slot != "hybrid"]
+    return slots
+
+
+def _readiness_snapshot() -> Dict[str, object]:
+    required_slots = _required_model_slots()
+    total = len(required_slots)
+    ready = sum(1 for slot in required_slots if MODELS.get(slot) is not None)
+    detail = None
+
+    if total < 1:
+        detail = "no models configured"
+    elif ready < total:
+        if "transformer" in required_slots and MODELS.get("transformer") is None:
+            detail = "transformer model not loaded"
+        elif (
+            HYBRID_REQUIRED
+            and "hybrid" in required_slots
+            and MODELS.get("hybrid") is None
+        ):
+            detail = HYBRID_SKIP_REASON or "hybrid model not loaded"
+        else:
+            detail = "models still loading"
+
+    status = "ready" if total > 0 and ready == total else "not_ready"
+    return {
+        "status": status,
+        "models": {"total": total, "ready": ready},
+        "required": required_slots,
+        "detail": detail,
+    }
+
+
+@app.get("/healthz")
+async def healthz():
+    snapshot = _readiness_snapshot()
+    status_code = 200 if snapshot["status"] == "ready" else 503
+    return JSONResponse(snapshot, status_code=status_code)
+
+
+@app.get("/livez")
+async def livez():
+    return JSONResponse({"status": "alive"}, status_code=200)
 
 
 # //////////////////////////////////////////////////////////////////////////////////////
