@@ -63,6 +63,7 @@ def _bool_env(name: str, default: bool) -> bool:
 
 
 HYBRID_REQUIRED = _bool_env("ZONOS_REQUIRE_HYBRID", False)
+ZONOS_SKIP_MAMBA = _bool_env("ZONOS_SKIP_MAMBA", False)
 VOICE_STORAGE_DIR = os.environ.get("VOICE_STORAGE_DIR", "data/voice_storage")
 VOICE_METADATA_FILE = os.path.join(VOICE_STORAGE_DIR, "voice_metadata.json")
 VOICE_CACHE: Dict[str, torch.Tensor] = {}
@@ -106,6 +107,17 @@ def log_backend_versions() -> bool:
     except Exception:
         logger.warning("Could not log env/torch path", exc_info=True)
 
+    if ZONOS_SKIP_MAMBA or not cuda_available:
+        if ZONOS_SKIP_MAMBA:
+            HYBRID_SKIP_REASON = "mamba-ssm import skipped by configuration"
+        else:
+            HYBRID_SKIP_REASON = "cuda unavailable"
+        logger.warning(
+            "Skipping mamba-ssm import (%s).",
+            HYBRID_SKIP_REASON,
+        )
+        return False
+
     try:
         import mamba_ssm  # type: ignore
 
@@ -113,11 +125,11 @@ def log_backend_versions() -> bool:
             "mamba-ssm %s import OK", getattr(mamba_ssm, "__version__", "unknown")
         )
         return True
-    except Exception:
+    except Exception as exc:
         HYBRID_SKIP_REASON = "mamba-ssm import failed"
         logger.warning(
-            "mamba-ssm import failed; the hybrid checkpoint will be skipped.\n%s",
-            traceback.format_exc(),
+            "mamba-ssm import failed; the hybrid checkpoint will be skipped (%s).",
+            exc,
         )
         return False
 
