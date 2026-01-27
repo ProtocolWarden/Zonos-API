@@ -1,4 +1,9 @@
+import errno
 import json
+import logging
+import os
+import shutil
+from pathlib import Path
 from typing import Callable
 
 import safetensors
@@ -17,6 +22,134 @@ from zonos.speaker_cloning import SpeakerEmbeddingLDA
 from zonos.utils import DEFAULT_DEVICE, find_multiple, pad_weight_
 
 DEFAULT_BACKBONE_CLS = next(iter(BACKBONES.values()))
+
+
+def _deployment_base() -> Path:
+    return Path(
+        os.environ.get("ZONOS_DEPLOYMENT_DIR", "/app/deployment/models/tts/zonos")
+    )
+
+
+def _hf_hub_cache() -> Path:
+    return Path(
+        os.environ.get("HF_HUB_CACHE")
+        or os.environ.get("HUGGINGFACE_HUB_CACHE")
+        or (Path.home() / ".cache" / "huggingface" / "hub")
+    )
+
+
+def _cleanup_hf_cache(repo_id: str, source_path: Path) -> None:
+    cache_root = _hf_hub_cache()
+    try:
+        if not cache_root.exists():
+            return
+        if cache_root in source_path.parents:
+            lock_dir = cache_root / ".locks" / f"models--{repo_id.replace('/', '--')}"
+            lock_file = lock_dir / f"{source_path.name}.lock"
+            lock_file.unlink(missing_ok=True)
+    except Exception:
+        pass
+
+
+def _move_to_deployment(repo_id: str, filename: str, source_path: str) -> Path:
+    dest_dir = _deployment_base() / repo_id.replace("/", "__")
+    dest_dir.mkdir(parents=True, exist_ok=True)
+    dest_path = dest_dir / filename
+    source = Path(source_path)
+    if dest_path.exists():
+        dest_path.unlink()
+    if source.is_symlink():
+        link_path = source
+        source = source.resolve()
+    else:
+        link_path = None
+
+    try:
+        os.replace(source, dest_path)
+    except OSError as exc:
+        if exc.errno != errno.EXDEV:
+            raise
+        shutil.copy2(source, dest_path)
+        os.unlink(source)
+
+    if link_path is not None:
+        try:
+            link_path.unlink()
+        except Exception:
+            pass
+    _cleanup_hf_cache(repo_id, source)
+    try:
+        base = _deployment_base()
+        base_stat = base.stat()
+        os.chown(dest_dir, base_stat.st_uid, base_stat.st_gid)
+        os.chown(dest_path, base_stat.st_uid, base_stat.st_gid)
+    except Exception:
+        pass
+    logging.getLogger(__name__).info(
+        "zonos_model_cached",
+        extra={
+            "cache_path": source_path,
+            "deployment_path": str(dest_path),
+            "repo_id": repo_id,
+        },
+    )
+    return dest_path
+
+
+def _validate_cached_file(path: Path) -> bool:
+    if not path.exists():
+        return False
+    if path.suffix == ".json":
+        try:
+            with path.open("r", encoding="utf-8") as handle:
+                json.load(handle)
+            return True
+        except Exception:
+            return False
+    if path.suffix == ".safetensors":
+        try:
+            with safetensors.safe_open(str(path), framework="pt") as handle:
+                # Touching keys is enough to validate header + index.
+                _ = list(handle.keys())
+            return True
+        except Exception:
+            return False
+    return True
+
+
+def _download_with_deployment_move(
+    repo_id: str, filename: str, revision: str | None = None
+) -> str:
+    dest_dir = _deployment_base() / repo_id.replace("/", "__")
+    dest_path = dest_dir / filename
+    if _validate_cached_file(dest_path):
+        return str(dest_path)
+    if dest_path.exists():
+        try:
+            dest_path.unlink()
+        except Exception:
+            pass
+
+    try:
+        cache_path = hf_hub_download(
+            repo_id=repo_id,
+            filename=filename,
+            revision=revision,
+            local_files_only=True,
+        )
+        if _validate_cached_file(Path(cache_path)):
+            return str(_move_to_deployment(repo_id, filename, cache_path))
+        try:
+            Path(cache_path).unlink()
+        except Exception:
+            pass
+    except Exception:
+        pass
+
+    cache_path = hf_hub_download(repo_id=repo_id, filename=filename, revision=revision)
+    if not _validate_cached_file(Path(cache_path)):
+        raise RuntimeError(f"Downloaded {filename} failed validation.")
+    return str(_move_to_deployment(repo_id, filename, cache_path))
 
 
 class Zonos(nn.Module):
@@ -69,10 +202,10 @@ class Zonos(nn.Module):
         device: str = DEFAULT_DEVICE,
         **kwargs,
     ) -> "Zonos":
-        config_path = hf_hub_download(
+        config_path = _download_with_deployment_move(
             repo_id=repo_id, filename="config.json", revision=revision
         )
-        model_path = hf_hub_download(
+        model_path = _download_with_deployment_move(
             repo_id=repo_id, filename="model.safetensors", revision=revision
         )
         return cls.from_local(config_path, model_path, device, **kwargs)
