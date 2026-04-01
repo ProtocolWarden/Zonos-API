@@ -63,10 +63,12 @@ if "logger" not in sys.modules:
 if "zonos" not in sys.modules:
     zonos_pkg = types.ModuleType("zonos")
     model_mod = types.ModuleType("zonos.model")
+
     class DummyZonos:
         @classmethod
         def from_pretrained(cls, *a, **k):
             return None
+
     model_mod.Zonos = DummyZonos
     conditioning_mod = types.ModuleType("zonos.conditioning")
     conditioning_mod.make_cond_dict = lambda **kw: kw
@@ -81,7 +83,14 @@ if "huggingface_hub" not in sys.modules:
     hub.hf_hub_download = lambda *a, **k: ""
     sys.modules["huggingface_hub"] = hub
 
-for mod in ["torchaudio", "safetensors", "inflect", "kanjize", "phonemizer.backend", "sudachipy"]:
+for mod in [
+    "torchaudio",
+    "safetensors",
+    "inflect",
+    "kanjize",
+    "phonemizer.backend",
+    "sudachipy",
+]:
     if mod not in sys.modules:
         sys.modules[mod] = types.ModuleType(mod)
 
@@ -97,11 +106,17 @@ if "phonemizer.backend" in sys.modules:
 
 if "sudachipy" in sys.modules:
     sud = sys.modules["sudachipy"]
+
     class DummyDict:
-        def __init__(self, *a, **k): pass
+        def __init__(self, *a, **k):
+            pass
+
         def create(self):
-            class T: pass
+            class T:
+                pass
+
             return T()
+
     sud.Dictionary = DummyDict
     sud.SplitMode = object
 
@@ -122,20 +137,26 @@ import torch
 from fastapi.testclient import TestClient
 import main_zonos_tts_api as api
 
+
 class FakeAutoencoder:
     sampling_rate = 22050
+
     def decode(self, codes):
         return torch.zeros(1, 160)
+
 
 class FakeModel:
     def __init__(self):
         self.autoencoder = FakeAutoencoder()
         self.last_cond = None
+
     def prepare_conditioning(self, cond_dict):
         self.last_cond = cond_dict
         return cond_dict
+
     def generate(self, **kwargs):
         return torch.zeros(1, 1, dtype=torch.long)
+
 
 def create_client(monkeypatch):
     fake = FakeModel()
@@ -146,6 +167,7 @@ def create_client(monkeypatch):
     monkeypatch.setattr(api, "make_cond_dict", lambda **kw: kw)
     return TestClient(api.app), fake
 
+
 def test_advanced_params(monkeypatch):
     client, model = create_client(monkeypatch)
     payload = {
@@ -153,9 +175,9 @@ def test_advanced_params(monkeypatch):
         "pitch_std": 60.0,
         "speaking_rate": 22.0,
         "fmax": 24000,
-        "vqscore_8": [0.78]*8,
+        "vqscore_8": [0.78] * 8,
         "dnsmos_ovrl": 4.0,
-        "speaker_noised": True
+        "speaker_noised": True,
     }
     response = client.post("/v1/audio/speech", json=payload)
     assert response.status_code == 200
@@ -163,6 +185,7 @@ def test_advanced_params(monkeypatch):
     assert model.last_cond["speaking_rate"] == 22.0
     assert model.last_cond["fmax"] == 24000
     assert model.last_cond["speaker_noised"] is True
+
 
 def test_defaults(monkeypatch):
     client, model = create_client(monkeypatch)
@@ -183,3 +206,50 @@ def test_returns_traceback_on_error(monkeypatch):
     detail = response.json()["detail"]
     assert detail["error"] == "Failed to generate speech"
     assert "RuntimeError: boom" in detail["traceback"]
+
+
+def test_healthz_not_ready_when_models_missing(monkeypatch):
+    monkeypatch.setattr(
+        api,
+        "MODELS",
+        {"transformer": None, "hybrid": None},
+    )
+    monkeypatch.setattr(api, "HYBRID_REQUIRED", True)
+    monkeypatch.setattr(api, "HYBRID_SKIP_REASON", None)
+    client = TestClient(api.app)
+    response = client.get("/healthz")
+    assert response.status_code == 503
+    payload = response.json()
+    assert payload["status"] == "not_ready"
+    assert payload["models"]["total"] >= 1
+    assert payload["models"]["ready"] == 0
+    assert "transformer" in payload["required"]
+
+
+def test_healthz_ready_when_required_models_loaded(monkeypatch):
+    fake_model = object()
+    monkeypatch.setattr(
+        api,
+        "MODELS",
+        {"transformer": fake_model, "hybrid": fake_model},
+    )
+    monkeypatch.setattr(api, "HYBRID_REQUIRED", True)
+    client = TestClient(api.app)
+    response = client.get("/healthz")
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["status"] == "ready"
+    assert payload["models"]["ready"] == payload["models"]["total"]
+    assert set(payload["required"]) == {"transformer", "hybrid"}
+
+
+def test_livez_always_ok(monkeypatch):
+    monkeypatch.setattr(
+        api,
+        "MODELS",
+        {"transformer": None, "hybrid": None},
+    )
+    client = TestClient(api.app)
+    response = client.get("/livez")
+    assert response.status_code == 200
+    assert response.json()["status"] == "alive"

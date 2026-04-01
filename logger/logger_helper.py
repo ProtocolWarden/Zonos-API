@@ -18,7 +18,6 @@ LOGGING_LEVELS = {
 
 # Define a custom logger class that extends the default logger
 class CustomLogger(logging.getLoggerClass()):
-
     def __init__(
         self,
         name: str,
@@ -55,9 +54,9 @@ class CustomLogger(logging.getLoggerClass()):
         half = 25
         whole = len(header) + (half * 2) + 2
 
-        log_content = (f"\n\n" + (char * half) + f" {header} " + (char * half))
+        log_content = f"\n\n" + (char * half) + f" {header} " + (char * half)
         for var_name, value in variables.items():
-            var_title = (var_name.title())  # Capitalize the variable name
+            var_title = var_name.title()  # Capitalize the variable name
             log_content += f"\n{var_title}: {value}"
         log_content += "\n" + (char * whole) + "\n"
 
@@ -73,8 +72,8 @@ class CustomLogger(logging.getLoggerClass()):
 
         log_content = f"\n\n{char * length}\n"
         for var_name, value in variables.items():
-            log_content += (f"{var_name.upper()}: {value}\t|\t")
-        log_content = log_content.rstrip('|\t')  # Remove trailing separator
+            log_content += f"{var_name.upper()}: {value}\t|\t"
+        log_content = log_content.rstrip("|\t")  # Remove trailing separator
         log_content += f"\n{char * length}\n"
 
         self.log_message(message=log_content, level=level)

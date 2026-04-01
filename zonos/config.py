@@ -57,6 +57,8 @@ class ZonosConfig:
     def from_dict(cls, d: dict) -> "ZonosConfig":
         d = d.copy()
         backbone_config = BackboneConfig(**d.pop("backbone"))
-        prefix_conditioner_config = PrefixConditionerConfig(**d.pop("prefix_conditioner"))
+        prefix_conditioner_config = PrefixConditionerConfig(
+            **d.pop("prefix_conditioner")
+        )
         config = cls(backbone_config, prefix_conditioner_config, **d)
         return config

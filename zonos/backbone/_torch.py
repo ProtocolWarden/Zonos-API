@@ -7,7 +7,9 @@ from zonos.config import BackboneConfig, InferenceParams
 
 
 def precompute_freqs_cis(seq_len: int, n_elem: int, base: float = 10000) -> torch.Tensor:
-    freqs = 1.0 / (base ** (torch.arange(0, n_elem, 2)[: (n_elem // 2)].float() / n_elem))
+    freqs = 1.0 / (
+        base ** (torch.arange(0, n_elem, 2)[: (n_elem // 2)].float() / n_elem)
+    )
     t = torch.arange(seq_len, device=freqs.device)
     freqs = torch.outer(t, freqs)
     freqs_cis = torch.polar(torch.ones_like(freqs), freqs)
@@ -54,14 +56,20 @@ class TorchZonosBackbone(nn.Module):
     freqs_cis: torch.Tensor
 
     def __init__(self, config: BackboneConfig):
-        assert not config.ssm_cfg, "This backbone implementation only supports the Transformer model."
+        assert (
+            not config.ssm_cfg
+        ), "This backbone implementation only supports the Transformer model."
         super().__init__()
         self.config = config
 
-        self.layers = nn.ModuleList(TransformerBlock(config, i) for i in range(config.n_layer))
+        self.layers = nn.ModuleList(
+            TransformerBlock(config, i) for i in range(config.n_layer)
+        )
         self.norm_f = nn.LayerNorm(config.d_model, eps=config.norm_epsilon)
 
-    def allocate_inference_cache(self, batch_size: int, max_seqlen: int, dtype: torch.dtype = torch.bfloat16):
+    def allocate_inference_cache(
+        self, batch_size: int, max_seqlen: int, dtype: torch.dtype = torch.bfloat16
+    ):
         # TODO: This function should be pure
         head_dim = self.config.d_model // self.config.attn_cfg["num_heads"]
         self.freqs_cis = precompute_freqs_cis(16384, head_dim)
@@ -70,7 +78,9 @@ class TorchZonosBackbone(nn.Module):
             for i, layer in enumerate(self.layers)
         }
 
-    def forward(self, hidden_states: torch.Tensor, inference_params: InferenceParams) -> torch.Tensor:
+    def forward(
+        self, hidden_states: torch.Tensor, inference_params: InferenceParams
+    ) -> torch.Tensor:
         input_pos = torch.arange(0, hidden_states.shape[1], device=hidden_states.device)
         input_pos = input_pos + inference_params.lengths_per_sample.unsqueeze(-1)
 
@@ -93,10 +103,16 @@ class TransformerBlock(nn.Module):
         self.num_heads_kv = config.attn_cfg["num_heads_kv"]
         self.head_dim = config.d_model // config.attn_cfg["num_heads"]
 
-    def allocate_inference_cache(self, batch_size: int, max_seqlen: int, dtype: torch.dtype = torch.bfloat16):
-        return torch.empty(batch_size, max_seqlen, 2, self.num_heads_kv, self.head_dim, dtype=dtype), None
+    def allocate_inference_cache(
+        self, batch_size: int, max_seqlen: int, dtype: torch.dtype = torch.bfloat16
+    ):
+        return torch.empty(
+            batch_size, max_seqlen, 2, self.num_heads_kv, self.head_dim, dtype=dtype
+        ), None
 
-    def forward(self, x: torch.Tensor, inference_params: InferenceParams, freqs_cis: torch.Tensor) -> torch.Tensor:
+    def forward(
+        self, x: torch.Tensor, inference_params: InferenceParams, freqs_cis: torch.Tensor
+    ) -> torch.Tensor:
         x = x + self.mixer(self.norm(x), inference_params, freqs_cis)
         x = x + self.mlp(self.norm2(x))
         return x
@@ -112,9 +128,13 @@ class Attention(nn.Module):
 
         total_head_dim = (self.num_heads + 2 * self.num_heads_kv) * self.head_dim
         self.in_proj = nn.Linear(config.d_model, total_head_dim, bias=False)
-        self.out_proj = nn.Linear(self.num_heads * self.head_dim, config.d_model, bias=False)
+        self.out_proj = nn.Linear(
+            self.num_heads * self.head_dim, config.d_model, bias=False
+        )
 
-    def forward(self, x: torch.Tensor, inference_params: InferenceParams, freqs_cis: torch.Tensor) -> torch.Tensor:
+    def forward(
+        self, x: torch.Tensor, inference_params: InferenceParams, freqs_cis: torch.Tensor
+    ) -> torch.Tensor:
         batch_size, seqlen, _ = x.shape
 
         q_size = self.num_heads * self.head_dim
@@ -133,7 +153,9 @@ class Attention(nn.Module):
 
         q, k, v = map(lambda x: x.transpose(1, 2), (q, k, v))
 
-        y = F.scaled_dot_product_attention(q, k, v, is_causal=seqlen > 1, enable_gqa=True)
+        y = F.scaled_dot_product_attention(
+            q, k, v, is_causal=seqlen > 1, enable_gqa=True
+        )
 
         y = y.transpose(1, 2).contiguous().view(batch_size, seqlen, q_size)
 
@@ -144,7 +166,9 @@ class Attention(nn.Module):
 class FeedForward(nn.Module):
     def __init__(self, config: BackboneConfig) -> None:
         super().__init__()
-        self.fc1 = nn.Linear(config.d_model, 2 * config.attn_mlp_d_intermediate, bias=False)
+        self.fc1 = nn.Linear(
+            config.d_model, 2 * config.attn_mlp_d_intermediate, bias=False
+        )
         self.fc2 = nn.Linear(config.attn_mlp_d_intermediate, config.d_model, bias=False)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:

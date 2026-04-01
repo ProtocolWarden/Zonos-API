@@ -16,7 +16,9 @@ try:
 
     BACKBONES["mamba_ssm"] = MambaSSMZonosBackbone
 except Exception as exc:  # pragma: no cover - defensive (GPU-only dependency)
-    logger.warning("MambaSSM backend unavailable; falling back to torch-only backbone: %s", exc)
+    logger.warning(
+        "MambaSSM backend unavailable; falling back to torch-only backbone: %s", exc
+    )
 
 from ._torch import TorchZonosBackbone
 
