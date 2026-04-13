@@ -14,7 +14,7 @@ _DAC_REPO_ID = "descript/dac_44khz"
 
 def _deployment_base() -> Path:
     return Path(
-        os.environ.get("ZONOS_DEPLOYMENT_DIR", "/app/deployment/models/tts/zonos")
+        os.environ.get("ZONOS_DEPLOYMENT_DIR", "/app/assets/models/tts/zonos")
     )
 
 
