@@ -17,7 +17,7 @@ from zonos.utils import DEFAULT_DEVICE
 
 def _deployment_base() -> Path:
     return Path(
-        os.environ.get("ZONOS_DEPLOYMENT_DIR", "/app/assets/models/tts/zonos")
+        os.environ.get("ZONOS_DEPLOYMENT_DIR", "/app/models/tts/zonos")
     )
 
 

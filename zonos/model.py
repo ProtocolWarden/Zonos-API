@@ -26,7 +26,7 @@ DEFAULT_BACKBONE_CLS = next(iter(BACKBONES.values()))
 
 def _deployment_base() -> Path:
     return Path(
-        os.environ.get("ZONOS_DEPLOYMENT_DIR", "/app/assets/models/tts/zonos")
+        os.environ.get("ZONOS_DEPLOYMENT_DIR", "/app/models/tts/zonos")
     )
 
 
