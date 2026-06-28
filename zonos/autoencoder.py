@@ -9,6 +9,8 @@ import torchaudio
 from huggingface_hub import hf_hub_download
 from transformers.models.dac import DacModel
 
+from zonos.integrity import validate_cached_file as _validate_cached_file
+
 _DAC_REPO_ID = "descript/dac_44khz"
 
 
@@ -79,22 +81,6 @@ def _move_to_deployment(repo_id: str, filename: str, source_path: str) -> Path:
     except Exception:
         pass
     return dest_path
-
-
-def _validate_cached_file(path: Path) -> bool:
-    if not path.exists():
-        return False
-    if path.suffix == ".json":
-        try:
-            with path.open("r", encoding="utf-8") as handle:
-                handle.read(1)
-            return True
-        except Exception:
-            return False
-    if path.suffix == ".safetensors":
-        # Let DacModel validate content when loading; presence is enough here.
-        return True
-    return True
 
 
 def _download_with_deployment_move(
