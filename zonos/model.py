@@ -1,4 +1,9 @@
+import errno
 import json
+import logging
+import os
+import shutil
+from pathlib import Path
 from typing import Callable
 
 import safetensors
@@ -19,6 +24,139 @@ from zonos.utils import DEFAULT_DEVICE, find_multiple, pad_weight_
 DEFAULT_BACKBONE_CLS = next(iter(BACKBONES.values()))
 
 
+def _deployment_base() -> Path:
+    return Path(
+        os.environ.get("ZONOS_DEPLOYMENT_DIR", "/app/models/tts/zonos")
+    )
+
+
+def _hf_hub_cache() -> Path:
+    return Path(
+        os.environ.get("HF_HUB_CACHE")
+        or os.environ.get("HUGGINGFACE_HUB_CACHE")
+        or (Path.home() / ".cache" / "huggingface" / "hub")
+    )
+
+
+def _cleanup_hf_cache(repo_id: str, source_path: Path) -> None:
+    cache_root = _hf_hub_cache()
+    try:
+        if not cache_root.exists():
+            return
+        if cache_root in source_path.parents:
+            lock_dir = cache_root / ".locks" / f"models--{repo_id.replace('/', '--')}"
+            lock_file = lock_dir / f"{source_path.name}.lock"
+            lock_file.unlink(missing_ok=True)
+    except Exception:
+        pass
+
+
+def _move_to_deployment(repo_id: str, filename: str, source_path: str) -> Path:
+    dest_dir = _deployment_base() / repo_id.replace("/", "__")
+    dest_dir.mkdir(parents=True, exist_ok=True)
+    dest_path = dest_dir / filename
+    source = Path(source_path)
+    if dest_path.exists():
+        dest_path.unlink()
+    if source.is_symlink():
+        link_path = source
+        source = source.resolve()
+    else:
+        link_path = None
+
+    try:
+        os.replace(source, dest_path)
+    except OSError as exc:
+        if exc.errno != errno.EXDEV:
+            raise
+        shutil.copy2(source, dest_path)
+        os.unlink(source)
+
+    if link_path is not None:
+        try:
+            link_path.unlink()
+        except Exception:
+            pass
+    _cleanup_hf_cache(repo_id, source)
+    # No chown: metadata churn on a Syncthing-synced file is itself a change
+    # event that can spawn sync-conflicts. The atomic os.replace above is the
+    # publish; ownership is left as-is (matches the echogarden model-publish
+    # discipline in VideoFoundry).
+    logging.getLogger(__name__).info(
+        "zonos_model_cached",
+        extra={
+            "cache_path": source_path,
+            "deployment_path": str(dest_path),
+            "repo_id": repo_id,
+        },
+    )
+    # A real download just landed in models/tts/zonos — signal the host snapshot
+    # responder (best-effort; never breaks model loading).
+    try:
+        from .snapshot_request import request_snapshot
+
+        request_snapshot(f"zonos-{repo_id.replace('/', '__')}-{filename}")
+    except Exception:
+        pass
+    return dest_path
+
+
+def _validate_cached_file(path: Path) -> bool:
+    if not path.exists():
+        return False
+    if path.suffix == ".json":
+        try:
+            with path.open("r", encoding="utf-8") as handle:
+                json.load(handle)
+            return True
+        except Exception:
+            return False
+    if path.suffix == ".safetensors":
+        try:
+            with safetensors.safe_open(str(path), framework="pt") as handle:
+                # Touching keys is enough to validate header + index.
+                _ = list(handle.keys())
+            return True
+        except Exception:
+            return False
+    return True
+
+
+def _download_with_deployment_move(
+    repo_id: str, filename: str, revision: str | None = None
+) -> str:
+    dest_dir = _deployment_base() / repo_id.replace("/", "__")
+    dest_path = dest_dir / filename
+    if _validate_cached_file(dest_path):
+        return str(dest_path)
+    if dest_path.exists():
+        try:
+            dest_path.unlink()
+        except Exception:
+            pass
+
+    try:
+        cache_path = hf_hub_download(
+            repo_id=repo_id,
+            filename=filename,
+            revision=revision,
+            local_files_only=True,
+        )
+        if _validate_cached_file(Path(cache_path)):
+            return str(_move_to_deployment(repo_id, filename, cache_path))
+        try:
+            Path(cache_path).unlink()
+        except Exception:
+            pass
+    except Exception:
+        pass
+
+    cache_path = hf_hub_download(repo_id=repo_id, filename=filename, revision=revision)
+    if not _validate_cached_file(Path(cache_path)):
+        raise RuntimeError(f"Downloaded {filename} failed validation.")
+    return str(_move_to_deployment(repo_id, filename, cache_path))
+
+
 class Zonos(nn.Module):
     def __init__(self, config: ZonosConfig, backbone_cls=DEFAULT_BACKBONE_CLS):
         super().__init__()
@@ -33,8 +171,15 @@ class Zonos(nn.Module):
         self.spk_clone_model = None
 
         # TODO: pad to multiple of at least 8
-        self.embeddings = nn.ModuleList([nn.Embedding(1026, dim) for _ in range(self.autoencoder.num_codebooks)])
-        self.heads = nn.ModuleList([nn.Linear(dim, 1025, bias=False) for _ in range(self.autoencoder.num_codebooks)])
+        self.embeddings = nn.ModuleList(
+            [nn.Embedding(1026, dim) for _ in range(self.autoencoder.num_codebooks)]
+        )
+        self.heads = nn.ModuleList(
+            [
+                nn.Linear(dim, 1025, bias=False)
+                for _ in range(self.autoencoder.num_codebooks)
+            ]
+        )
 
         self._cg_graph = None
         self._cg_batch_size = None
@@ -56,25 +201,52 @@ class Zonos(nn.Module):
 
     @classmethod
     def from_pretrained(
-        cls, repo_id: str, revision: str | None = None, device: str = DEFAULT_DEVICE, **kwargs
+        cls,
+        repo_id: str,
+        revision: str | None = None,
+        device: str = DEFAULT_DEVICE,
+        **kwargs,
     ) -> "Zonos":
-        config_path = hf_hub_download(repo_id=repo_id, filename="config.json", revision=revision)
-        model_path = hf_hub_download(repo_id=repo_id, filename="model.safetensors", revision=revision)
+        config_path = _download_with_deployment_move(
+            repo_id=repo_id, filename="config.json", revision=revision
+        )
+        model_path = _download_with_deployment_move(
+            repo_id=repo_id, filename="model.safetensors", revision=revision
+        )
         return cls.from_local(config_path, model_path, device, **kwargs)
 
     @classmethod
     def from_local(
-        cls, config_path: str, model_path: str, device: str = DEFAULT_DEVICE, backbone: str | None = None
+        cls,
+        config_path: str,
+        model_path: str,
+        device: str = DEFAULT_DEVICE,
+        backbone: str | None = None,
     ) -> "Zonos":
         config = ZonosConfig.from_dict(json.load(open(config_path)))
+        requires_mamba = bool(config.backbone.ssm_cfg)
+        # Hybrid checkpoints populate `ssm_cfg`. The transformer backbone asserts this
+        # field is empty, so ensuring we select the mamba implementation (or fail with a
+        # clear error) avoids the runtime assertion users encountered previously.
+
         if backbone:
             backbone_cls = BACKBONES[backbone]
+            if requires_mamba and backbone != "mamba_ssm":
+                raise RuntimeError(
+                    "This checkpoint requires the mamba-ssm backbone. "
+                    "Install the `mamba-ssm` package or omit the `backbone` override."
+                )
         else:
-            is_transformer = not bool(config.backbone.ssm_cfg)
-            backbone_cls = DEFAULT_BACKBONE_CLS
-            # Preferentially route to pure torch backbone for increased performance and lower latency.
-            if is_transformer and "torch" in BACKBONES:
-                backbone_cls = BACKBONES["torch"]
+            if requires_mamba:
+                if "mamba_ssm" not in BACKBONES:
+                    raise RuntimeError(
+                        "This checkpoint was trained with the mamba-ssm backbone, but the dependency "
+                        "is not installed. Install the `mamba-ssm` package to load it, or select a "
+                        "transformer-only checkpoint."
+                    )
+                backbone_cls = BACKBONES["mamba_ssm"]
+            else:
+                backbone_cls = BACKBONES.get("torch", DEFAULT_BACKBONE_CLS)
 
         model = cls(config, backbone_cls).to(device, torch.bfloat16)
         model.autoencoder.dac.to(device)
@@ -101,13 +273,18 @@ class Zonos(nn.Module):
         return torch.stack([head(hidden_states) for head in self.heads], dim=1)
 
     def _compute_logits(
-        self, hidden_states: torch.Tensor, inference_params: InferenceParams, cfg_scale: float
+        self,
+        hidden_states: torch.Tensor,
+        inference_params: InferenceParams,
+        cfg_scale: float,
     ) -> torch.Tensor:
         """
         Pass `hidden_states` into `backbone` and `multi_head`, applying
         classifier-free guidance if `cfg_scale != 1.0`.
         """
-        last_hidden_states = self.backbone(hidden_states, inference_params)[:, -1, :].unsqueeze(1)
+        last_hidden_states = self.backbone(hidden_states, inference_params)[
+            :, -1, :
+        ].unsqueeze(1)
         logits = self.apply_heads(last_hidden_states).squeeze(2).float()
         if cfg_scale != 1.0:
             cond_logits, uncond_logits = logits.chunk(2)
@@ -164,7 +341,9 @@ class Zonos(nn.Module):
             def capture_region():
                 hidden_states_local = self.embed_codes(self._cg_input_ids)
                 hidden_states_local = hidden_states_local.repeat(2, 1, 1)
-                self._cg_logits = self._compute_logits(hidden_states_local, self._cg_inference_params, self._cg_scale)
+                self._cg_logits = self._compute_logits(
+                    hidden_states_local, self._cg_inference_params, self._cg_scale
+                )
 
             with torch.cuda.graph(g):
                 capture_region()
@@ -192,18 +371,30 @@ class Zonos(nn.Module):
         # Replicate input_ids if CFG is enabled
         if cfg_scale != 1.0:
             input_ids = input_ids.expand(prefix_hidden_states.shape[0], -1, -1)
-        hidden_states = torch.cat([prefix_hidden_states, self.embed_codes(input_ids)], dim=1)
+        hidden_states = torch.cat(
+            [prefix_hidden_states, self.embed_codes(input_ids)], dim=1
+        )
         return self._compute_logits(hidden_states, inference_params, cfg_scale)
 
-    def setup_cache(self, batch_size: int, max_seqlen: int, dtype: torch.dtype = torch.bfloat16) -> InferenceParams:
+    def setup_cache(
+        self, batch_size: int, max_seqlen: int, dtype: torch.dtype = torch.bfloat16
+    ) -> InferenceParams:
         max_seqlen = find_multiple(max_seqlen, 8)
-        key_value_memory_dict = self.backbone.allocate_inference_cache(batch_size, max_seqlen, dtype=dtype)
+        key_value_memory_dict = self.backbone.allocate_inference_cache(
+            batch_size, max_seqlen, dtype=dtype
+        )
         lengths_per_sample = torch.full((batch_size,), 0, dtype=torch.int32)
-        return InferenceParams(max_seqlen, batch_size, 0, 0, key_value_memory_dict, lengths_per_sample)
+        return InferenceParams(
+            max_seqlen, batch_size, 0, 0, key_value_memory_dict, lengths_per_sample
+        )
 
-    def prepare_conditioning(self, cond_dict: dict, uncond_dict: dict | None = None) -> torch.Tensor:
+    def prepare_conditioning(
+        self, cond_dict: dict, uncond_dict: dict | None = None
+    ) -> torch.Tensor:
         if uncond_dict is None:
-            uncond_dict = {k: cond_dict[k] for k in self.prefix_conditioner.required_keys}
+            uncond_dict = {
+                k: cond_dict[k] for k in self.prefix_conditioner.required_keys
+            }
         return torch.cat(
             [
                 self.prefix_conditioner(cond_dict),
@@ -213,7 +404,9 @@ class Zonos(nn.Module):
 
     def can_use_cudagraphs(self) -> bool:
         # Only the mamba-ssm backbone supports CUDA Graphs at the moment
-        return self.device.type == "cuda" and "_mamba_ssm" in str(self.backbone.__class__)
+        return self.device.type == "cuda" and "_mamba_ssm" in str(
+            self.backbone.__class__
+        )
 
     @torch.inference_mode()
     def generate(
@@ -229,20 +422,26 @@ class Zonos(nn.Module):
         callback: Callable[[torch.Tensor, int, int], bool] | None = None,
     ):
         assert cfg_scale != 1, "TODO: add support for cfg_scale=1"
-        prefix_audio_len = 0 if audio_prefix_codes is None else audio_prefix_codes.shape[2]
+        prefix_audio_len = (
+            0 if audio_prefix_codes is None else audio_prefix_codes.shape[2]
+        )
         device = self.device
 
         # Use CUDA Graphs if supported, and torch.compile otherwise.
         cg = self.can_use_cudagraphs()
         decode_one_token = self._decode_one_token
-        decode_one_token = torch.compile(decode_one_token, dynamic=True, disable=cg or disable_torch_compile)
+        decode_one_token = torch.compile(
+            decode_one_token, dynamic=True, disable=cg or disable_torch_compile
+        )
 
         unknown_token = -1
         audio_seq_len = prefix_audio_len + max_new_tokens
         seq_len = prefix_conditioning.shape[1] + audio_seq_len + 9
 
         with torch.device(device):
-            inference_params = self.setup_cache(batch_size=batch_size * 2, max_seqlen=seq_len)
+            inference_params = self.setup_cache(
+                batch_size=batch_size * 2, max_seqlen=seq_len
+            )
             codes = torch.full((batch_size, 9, audio_seq_len), unknown_token)
 
         if audio_prefix_codes is not None:
@@ -252,7 +451,9 @@ class Zonos(nn.Module):
 
         delayed_prefix_audio_codes = delayed_codes[..., : prefix_audio_len + 1]
 
-        logits = self._prefill(prefix_conditioning, delayed_prefix_audio_codes, inference_params, cfg_scale)
+        logits = self._prefill(
+            prefix_conditioning, delayed_prefix_audio_codes, inference_params, cfg_scale
+        )
         next_token = sample_from_logits(logits, **sampling_params)
 
         offset = delayed_prefix_audio_codes.shape[2]
@@ -264,7 +465,9 @@ class Zonos(nn.Module):
         inference_params.lengths_per_sample[:] += prefix_length
 
         logit_bias = torch.zeros_like(logits)
-        logit_bias[:, 1:, self.eos_token_id] = -torch.inf  # only allow codebook 0 to predict EOS
+        logit_bias[
+            :, 1:, self.eos_token_id
+        ] = -torch.inf  # only allow codebook 0 to predict EOS
 
         stopping = torch.zeros(batch_size, dtype=torch.bool, device=device)
         max_steps = delayed_codes.shape[2] - offset
@@ -276,13 +479,19 @@ class Zonos(nn.Module):
         while torch.max(remaining_steps) > 0:
             offset += 1
             input_ids = delayed_codes[..., offset - 1 : offset]
-            logits = decode_one_token(input_ids, inference_params, cfg_scale, allow_cudagraphs=cg)
+            logits = decode_one_token(
+                input_ids, inference_params, cfg_scale, allow_cudagraphs=cg
+            )
             logits += logit_bias
 
-            next_token = sample_from_logits(logits, generated_tokens=delayed_codes[..., :offset], **sampling_params)
+            next_token = sample_from_logits(
+                logits, generated_tokens=delayed_codes[..., :offset], **sampling_params
+            )
             eos_in_cb0 = next_token[:, 0] == self.eos_token_id
 
-            remaining_steps[eos_in_cb0[:, 0]] = torch.minimum(remaining_steps[eos_in_cb0[:, 0]], torch.tensor(9))
+            remaining_steps[eos_in_cb0[:, 0]] = torch.minimum(
+                remaining_steps[eos_in_cb0[:, 0]], torch.tensor(9)
+            )
             stopping |= eos_in_cb0[:, 0]
 
             eos_codebook_idx = 9 - remaining_steps

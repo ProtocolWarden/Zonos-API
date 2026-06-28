@@ -1,0 +1,44 @@
+# VCS
+.git
+.gitignore
+.gitattributes
+
+# Python cache and build artifacts
+**/__pycache__/
+__pycache__/
+*.py[cod]
+**/*.py[co]
+*.pyd
+*.so
+*.egg-info/
+.build/
+build/
+dist/
+.cache/
+
+# Environments
+.env
+.env.*
+.venv/
+venv/
+
+# Node / frontend dependencies
+node_modules/
+
+# OS / editor junk
+**/.DS_Store
+.DS_Store
+Thumbs.db
+*.swp
+*.swo
+.idea/
+.vscode/
+
+# Test artifacts
+.coverage
+htmlcov/
+.pytest_cache/
+
+# Wheels and temporary files
+/tmp/
+**/*.whl

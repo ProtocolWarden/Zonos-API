@@ -1,5 +1,6 @@
 import multiprocessing
-multiprocessing.set_start_method('spawn', force=True)
+
+multiprocessing.set_start_method("spawn", force=True)
 
 import torch
 import torchaudio
@@ -14,6 +15,7 @@ from zonos.utils import DEFAULT_DEVICE as device
 CURRENT_MODEL_TYPE = None
 CURRENT_MODEL = None
 
+
 def load_model_if_needed(model_choice: str):
     global CURRENT_MODEL_TYPE, CURRENT_MODEL
     if CURRENT_MODEL_TYPE != model_choice:
@@ -26,6 +28,7 @@ def load_model_if_needed(model_choice: str):
         CURRENT_MODEL_TYPE = model_choice
         print(f"{model_choice} model loaded successfully!")
     return CURRENT_MODEL
+
 
 def update_ui(model_choice):
     """
@@ -79,6 +82,7 @@ def update_ui(model_choice):
         speaker_noised_checkbox_update,
         unconditional_keys_update,
     )
+
 
 def generate_audio(
     model_choice,
@@ -148,7 +152,9 @@ def generate_audio(
         wav_prefix = wav_prefix.to(device, dtype=torch.float32)
         audio_prefix_codes = selected_model.autoencoder.encode(wav_prefix.unsqueeze(0))
 
-    emotion_tensor = torch.tensor(list(map(float, [e1, e2, e3, e4, e5, e6, e7, e8])), device=device)
+    emotion_tensor = torch.tensor(
+        list(map(float, [e1, e2, e3, e4, e5, e6, e7, e8])), device=device
+    )
 
     vq_val = float(vq_single)
     vq_tensor = torch.tensor([vq_val] * 8, device=device).unsqueeze(0)
@@ -182,7 +188,14 @@ def generate_audio(
         max_new_tokens=max_new_tokens,
         cfg_scale=cfg_scale,
         batch_size=1,
-        sampling_params=dict(top_p=top_p, top_k=top_k, min_p=min_p, linear=linear, conf=confidence, quad=quadratic),
+        sampling_params=dict(
+            top_p=top_p,
+            top_k=top_k,
+            min_p=min_p,
+            linear=linear,
+            conf=confidence,
+            quad=quadratic,
+        ),
         callback=update_progress,
     )
 
@@ -191,6 +204,7 @@ def generate_audio(
     if wav_out.dim() == 2 and wav_out.size(0) > 1:
         wav_out = wav_out[0:1, :]
     return (sr_out, wav_out.squeeze().numpy()), seed
+
 
 def build_interface():
     supported_models = []
@@ -236,31 +250,62 @@ def build_interface():
                     label="Optional Speaker Audio (for cloning)",
                     type="filepath",
                 )
-                speaker_noised_checkbox = gr.Checkbox(label="Denoise Speaker?", value=False)
+                speaker_noised_checkbox = gr.Checkbox(
+                    label="Denoise Speaker?", value=False
+                )
 
         with gr.Row():
             with gr.Column():
                 gr.Markdown("## Conditioning Parameters")
-                dnsmos_slider = gr.Slider(1.0, 5.0, value=4.0, step=0.1, label="DNSMOS Overall")
+                dnsmos_slider = gr.Slider(
+                    1.0, 5.0, value=4.0, step=0.1, label="DNSMOS Overall"
+                )
                 fmax_slider = gr.Slider(0, 24000, value=24000, step=1, label="Fmax (Hz)")
                 vq_single_slider = gr.Slider(0.5, 0.8, 0.78, 0.01, label="VQ Score")
-                pitch_std_slider = gr.Slider(0.0, 300.0, value=45.0, step=1, label="Pitch Std")
-                speaking_rate_slider = gr.Slider(5.0, 30.0, value=15.0, step=0.5, label="Speaking Rate")
+                pitch_std_slider = gr.Slider(
+                    0.0, 300.0, value=45.0, step=1, label="Pitch Std"
+                )
+                speaking_rate_slider = gr.Slider(
+                    5.0, 30.0, value=15.0, step=0.5, label="Speaking Rate"
+                )
 
             with gr.Column():
                 gr.Markdown("## Generation Parameters")
                 cfg_scale_slider = gr.Slider(1.0, 5.0, 2.0, 0.1, label="CFG Scale")
                 seed_number = gr.Number(label="Seed", value=420, precision=0)
-                randomize_seed_toggle = gr.Checkbox(label="Randomize Seed (before generation)", value=True)
+                randomize_seed_toggle = gr.Checkbox(
+                    label="Randomize Seed (before generation)", value=True
+                )
 
         with gr.Accordion("Sampling", open=False):
             with gr.Row():
                 with gr.Column():
                     gr.Markdown("### NovelAi's unified sampler")
-                    linear_slider = gr.Slider(-2.0, 2.0, 0.5, 0.01, label="Linear (set to 0 to disable unified sampling)", info="High values make the output less random.")
-                    #Conf's theoretical range is between -2 * Quad and 0.
-                    confidence_slider = gr.Slider(-2.0, 2.0, 0.40, 0.01, label="Confidence", info="Low values make random outputs more random.")
-                    quadratic_slider = gr.Slider(-2.0, 2.0, 0.00, 0.01, label="Quadratic", info="High values make low probablities much lower.")
+                    linear_slider = gr.Slider(
+                        -2.0,
+                        2.0,
+                        0.5,
+                        0.01,
+                        label="Linear (set to 0 to disable unified sampling)",
+                        info="High values make the output less random.",
+                    )
+                    # Conf's theoretical range is between -2 * Quad and 0.
+                    confidence_slider = gr.Slider(
+                        -2.0,
+                        2.0,
+                        0.40,
+                        0.01,
+                        label="Confidence",
+                        info="Low values make random outputs more random.",
+                    )
+                    quadratic_slider = gr.Slider(
+                        -2.0,
+                        2.0,
+                        0.00,
+                        0.01,
+                        label="Quadratic",
+                        info="High values make low probablities much lower.",
+                    )
                 with gr.Column():
                     gr.Markdown("### Legacy sampling")
                     top_p_slider = gr.Slider(0.0, 1.0, 0, 0.01, label="Top P")
@@ -396,15 +441,17 @@ def build_interface():
                 randomize_seed_toggle,
                 unconditional_keys,
             ],
-            outputs=[output_audio, seed_number]
+            outputs=[output_audio, seed_number],
         )
 
     return demo
+
 
 def run_gradio():
     demo = build_interface()
     share = getenv("GRADIO_SHARE", "False").lower() in ("true", "1", "t")
     demo.launch(server_name="0.0.0.0", server_port=7860, share=share)
+
 
 if __name__ == "__main__":
     run_gradio()

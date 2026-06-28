@@ -67,8 +67,7 @@ torchaudio.save("sample.wav", wavs[0], model.autoencoder.sampling_rate)
 ### Gradio interface (recommended)
 
 ```bash
-uv run gradio_interface.py
-# python gradio_interface.py
+python gradio_interface.py
 ```
 
 This should produce a `sample.wav` file in your project root directory.
@@ -78,6 +77,33 @@ _For repeated sampling we highly recommend using the gradio interface instead, a
 ### API Usage (OpenAI-compatible)
 
 Zonos provides an OpenAI-compatible API that allows you to generate speech through HTTP requests.
+
+### Model availability & hybrid fallback
+
+The API defaults to the transformer checkpoint (`Zyphra/Zonos-v0.1-transformer`). Hybrid requests
+(`Zyphra/Zonos-v0.1-hybrid`) rely on the optional `mamba-ssm` CUDA extension. At startup the
+service logs the active Python prefix, the Torch module path, and whether the hybrid stack imported
+successfully. If the extension is missing or fails to load, the hybrid checkpoint is skipped and the
+server transparently serves transformer responses instead.
+
+Re-run the environment probe at any time with:
+
+```bash
+python - <<'PY'
+import torch, sys
+print('sys.prefix=', sys.prefix)
+print('torch file=', torch.__file__)
+print('torch version=', torch.__version__)
+try:
+    import mamba_ssm
+    print('mamba-ssm=', mamba_ssm.__version__)
+except Exception as exc:
+    print('mamba-ssm import failed:', exc)
+PY
+```
+
+If the probe reports a failure, rebuild the Docker image (keeping the pinned base digest) or
+reinstall `mamba-ssm` with `pip install --no-binary=:all: mamba-ssm` inside the running container.
 
 #### Setting up the API
 
@@ -128,6 +154,10 @@ curl -X POST "http://localhost:8000/v1/audio/speech" \
     "emotion": {
       "happiness": 1.0
     },
+    "pitch_std": 50.0,
+    "speaking_rate": 20.0,
+    "fmax": 22050,
+    "vqscore_8": [0.78, 0.78, 0.78, 0.78, 0.78, 0.78, 0.78, 0.78],
     "response_format": "mp3"
   }' \
   --output speech.mp3
@@ -173,6 +203,23 @@ with open("output.mp3", "wb") as f:
     f.write(response.content)
 ```
 
+### Advanced Conditioning Parameters
+
+The `/v1/audio/speech` endpoint exposes additional optional fields that let you
+fine‑tune prosody and quality:
+
+- `pitch_std` (0–400) – controls pitch variation.
+- `speaking_rate` (0–40) – phonemes per second; overrides `speed`.
+- `fmax` (0–24000) – max frequency of the generated audio.
+- `vqscore_8` (8 floats 0.5–0.8) – target quality for each eighth of the
+  audio (hybrid model only).
+- `dnsmos_ovrl` (1–5) – MOS‑based quality metric (hybrid model only).
+- `speaker_noised` (bool) – whether to denoise the speaker embedding.
+
+These parameters default to sensible values. Override only the ones you need.
+For example, higher `pitch_std` and `speaking_rate` values will produce more
+expressive or faster speech, while `vqscore_8` can enforce cleaner audio.
+
 ## Features
 
 - Zero-shot TTS with voice cloning: Input desired text and a 10-30s speaker sample to generate high quality TTS output
@@ -208,28 +255,46 @@ apt install -y espeak-ng # For Ubuntu
 
 #### Python dependencies
 
-We highly recommend using a recent version of [uv](https://docs.astral.sh/uv/#installation) for installation. If you don't have uv installed, you can install it via pip: `pip install -U uv`.
-
-##### Installing into a new uv virtual environment (recommended)
+We recommend using `pip` inside a virtual environment so the torch stack stays aligned with the CUDA toolchain. A minimal setup looks like:
 
 ```bash
-uv sync
-uv sync --extra compile # optional but needed to run the hybrid
-uv pip install -e .
+python -m venv .venv
+source .venv/bin/activate
+python -m pip install --upgrade pip
+# ensure the `uv` CLI is available (https://docs.astral.sh/uv/getting-started/)
+python -m pip install --index-url https://download.pytorch.org/whl/cu124 \
+  --extra-index-url https://pypi.org/simple \
+  torch==2.6.0+cu124 torchaudio==2.6.0+cu124
+uv export --locked --format requirements-txt > runtime.lock.txt
+python -m pip install -r runtime.lock.txt
+python -m pip install -e . --no-deps
 ```
 
-##### Installing into the system/actived environment using uv
+> Need `torchvision`? Install the matching CUDA 12.4 wheel, e.g. `python -m pip install --index-url https://download.pytorch.org/whl/cu124 torchvision==0.21.0+cu124`.
+
+Hybrid checkpoints additionally need the CUDA extensions from the `compile` extra:
 
 ```bash
-uv pip install -e .
-uv pip install -e .[compile] # optional but needed to run the hybrid
+uv export --locked -E compile --format requirements-txt > compile.lock.txt
+python -m pip install --no-build-isolation -r compile.lock.txt
+# Avoid extras directly to keep dependency resolution inside the Docker build tooling.
+# python -m pip install .[compile]
 ```
 
-##### Installing into the system/actived environment using pip
+On host installs these extensions compile locally and therefore require a matching CUDA toolkit, compiler, and headers.
+Inside the Docker images they are prebuilt as wheels during the builder stage, so the runtime layer ships without compilers.
+If you also need `torchvision`, enable the pinned build by passing `--build-arg WITH_TORCHVISION=1` (or install the
+`0.21.0+cu124` wheel from the same CUDA index when working on the host).
+
+##### Quick environment diagnostic
 
 ```bash
-pip install -e .
-pip install --no-build-isolation -e .[compile] # optional but needed to run the hybrid
+python - <<'PY'
+import torch, sys
+print('sys.prefix=', sys.prefix)
+print('torch=', torch.__file__)
+print('torch ver=', torch.__version__)
+PY
 ```
 
 ##### Confirm that it's working
@@ -237,8 +302,7 @@ pip install --no-build-isolation -e .[compile] # optional but needed to run the 
 For convenience we provide a minimal example to check that the installation works:
 
 ```bash
-uv run sample.py
-# python sample.py
+python sample.py
 ```
 
 ## Docker installation

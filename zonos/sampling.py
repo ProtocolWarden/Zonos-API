@@ -1,7 +1,9 @@
 import torch
 
 
-def multinomial(input: torch.Tensor, num_samples: int, replacement=False, *, generator=None):
+def multinomial(
+    input: torch.Tensor, num_samples: int, replacement=False, *, generator=None
+):
     """torch.multinomial with arbitrary number of dimensions, and number of candidates on the last dimension.
 
     Args:
@@ -21,14 +23,18 @@ def multinomial(input: torch.Tensor, num_samples: int, replacement=False, *, gen
         return torch.argmax(input / q, dim=-1, keepdim=True).to(torch.int64)
 
     input_ = input.reshape(-1, input.shape[-1])
-    output_ = torch.multinomial(input_, num_samples=num_samples, replacement=replacement, generator=generator)
+    output_ = torch.multinomial(
+        input_, num_samples=num_samples, replacement=replacement, generator=generator
+    )
     output = output_.reshape(*list(input.shape[:-1]), -1)
     return output
 
 
-def apply_unified(probs: torch.Tensor, linear: float, conf: float, quad: float) -> torch.Tensor:
+def apply_unified(
+    probs: torch.Tensor, linear: float, conf: float, quad: float
+) -> torch.Tensor:
     """Sample next token using unified sampling approach that combines linear scaling, confidence, and quadratic terms.
-    
+
     Args:
         probs (torch.Tensor): Input probabilities with token candidates on the last dimension.
         linear (float): Linear scaling factor applied to log probabilities.
@@ -41,6 +47,7 @@ def apply_unified(probs: torch.Tensor, linear: float, conf: float, quad: float) 
     entropy = -torch.sum(probs * logprobs, dim=-1, keepdim=True)
     raw = logprobs * (linear + entropy * conf) - logprobs**2 * quad
     return raw.softmax(dim=-1)
+
 
 def apply_top_k(
     probs: torch.Tensor,
@@ -110,7 +117,9 @@ def modify_logit_for_repetition_penalty(
     generated_tokens = generated_tokens[..., -repetition_penalty_window:]
     generated_tokens = generated_tokens.clamp_max(logits.shape[-1] - 1).to(torch.int64)
     rp = torch.full_like(logits, repetition_penalty)
-    factors = torch.ones_like(logits).scatter_reduce(2, generated_tokens, rp, reduce="prod")
+    factors = torch.ones_like(logits).scatter_reduce(
+        2, generated_tokens, rp, reduce="prod"
+    )
     return torch.where(logits <= 0, logits * factors, logits / factors)
 
 
@@ -128,7 +137,7 @@ def sample_from_logits(
     repetition_penalty_window: int = 2,
 ) -> torch.Tensor:
     """Sample next token from logits using either top_k/p/min_p OR using NovelAI's Unified Sampler.
-    
+
     Args:
         logits (torch.Tensor): Input logits with token candidates on the last dimension.
 
@@ -141,16 +150,16 @@ def sample_from_logits(
             Set to 0 to disable.
 
         top_k (int): Only sample from the top k most probable tokens. Set to 0 to disable.
-        
+
         min_p (float): Minimum token probability, scaled by the probability of the most likely token.
                        Must be between 0 and 1. Typical values are in the 0.01-0.2 range.
                        If too high, no token might be sampled leading to silence (?)
 
         linear (float): NovelAI's Unified Sampler -> 0.0 to 1.0, default from gradio 0.5
 
-            Set Linear between 0 and 1 according to how unusual you want tokens to be. 
-            Lower numbers will produce more unusual/creative outputs, 
-            but you will have to reroll or edit more. 
+            Set Linear between 0 and 1 according to how unusual you want tokens to be.
+            Lower numbers will produce more unusual/creative outputs,
+            but you will have to reroll or edit more.
 
         conf (float): Confidence - Low values make random outputs more random. -> -2.0 * Quad to 2.0, default from gradio 0.4
 
@@ -162,7 +171,9 @@ def sample_from_logits(
         torch.Tensor: Sampled tokens.
     """
     if repetition_penalty != 1.0 and generated_tokens is not None:
-        logits = modify_logit_for_repetition_penalty(logits, generated_tokens, repetition_penalty, repetition_penalty_window)
+        logits = modify_logit_for_repetition_penalty(
+            logits, generated_tokens, repetition_penalty, repetition_penalty_window
+        )
 
     if temperature > 0:
         probs = torch.softmax(logits / temperature, dim=-1)

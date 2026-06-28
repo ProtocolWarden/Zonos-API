@@ -1,4 +1,9 @@
+import errno
+import logging
 import math
+import os
+import shutil
+from pathlib import Path
 from functools import cache
 
 import torch
@@ -8,6 +13,125 @@ import torchaudio
 from huggingface_hub import hf_hub_download
 
 from zonos.utils import DEFAULT_DEVICE
+
+
+def _deployment_base() -> Path:
+    return Path(
+        os.environ.get("ZONOS_DEPLOYMENT_DIR", "/app/models/tts/zonos")
+    )
+
+
+def _hf_hub_cache() -> Path:
+    return Path(
+        os.environ.get("HF_HUB_CACHE")
+        or os.environ.get("HUGGINGFACE_HUB_CACHE")
+        or (Path.home() / ".cache" / "huggingface" / "hub")
+    )
+
+
+def _cleanup_hf_cache(repo_id: str, source_path: Path) -> None:
+    cache_root = _hf_hub_cache()
+    try:
+        if not cache_root.exists():
+            return
+        if cache_root in source_path.parents:
+            lock_dir = cache_root / ".locks" / f"models--{repo_id.replace('/', '--')}"
+            lock_file = lock_dir / f"{source_path.name}.lock"
+            lock_file.unlink(missing_ok=True)
+    except Exception:
+        pass
+
+
+def _move_to_deployment(repo_id: str, filename: str, source_path: str) -> Path:
+    dest_dir = _deployment_base() / repo_id.replace("/", "__")
+    dest_dir.mkdir(parents=True, exist_ok=True)
+    dest_path = dest_dir / filename
+    source = Path(source_path)
+    if dest_path.exists():
+        dest_path.unlink()
+    if source.is_symlink():
+        link_path = source
+        source = source.resolve()
+    else:
+        link_path = None
+
+    try:
+        os.replace(source, dest_path)
+    except OSError as exc:
+        if exc.errno != errno.EXDEV:
+            raise
+        shutil.copy2(source, dest_path)
+        os.unlink(source)
+
+    if link_path is not None:
+        try:
+            link_path.unlink()
+        except Exception:
+            pass
+    _cleanup_hf_cache(repo_id, source)
+    try:
+        base = _deployment_base()
+        base_stat = base.stat()
+        os.chown(dest_dir, base_stat.st_uid, base_stat.st_gid)
+        os.chown(dest_path, base_stat.st_uid, base_stat.st_gid)
+    except Exception:
+        pass
+    logging.getLogger(__name__).info(
+        "zonos_speaker_model_cached",
+        extra={
+            "cache_path": source_path,
+            "deployment_path": str(dest_path),
+            "repo_id": repo_id,
+        },
+    )
+    return dest_path
+
+
+def _validate_cached_file(path: Path) -> bool:
+    if not path.exists():
+        return False
+    if path.suffix == ".pt":
+        try:
+            torch.load(path, map_location="cpu")
+            return True
+        except Exception:
+            return False
+    return True
+
+
+def _download_with_deployment_move(
+    repo_id: str, filename: str, revision: str | None = None
+) -> str:
+    dest_dir = _deployment_base() / repo_id.replace("/", "__")
+    dest_path = dest_dir / filename
+    if _validate_cached_file(dest_path):
+        return str(dest_path)
+    if dest_path.exists():
+        try:
+            dest_path.unlink()
+        except Exception:
+            pass
+
+    try:
+        cache_path = hf_hub_download(
+            repo_id=repo_id,
+            filename=filename,
+            revision=revision,
+            local_files_only=True,
+        )
+        if _validate_cached_file(Path(cache_path)):
+            return str(_move_to_deployment(repo_id, filename, cache_path))
+        try:
+            Path(cache_path).unlink()
+        except Exception:
+            pass
+    except Exception:
+        pass
+
+    cache_path = hf_hub_download(repo_id=repo_id, filename=filename, revision=revision)
+    if not _validate_cached_file(Path(cache_path)):
+        raise RuntimeError(f"Downloaded {filename} failed validation.")
+    return str(_move_to_deployment(repo_id, filename, cache_path))
 
 
 class logFbankCal(nn.Module):
@@ -66,9 +190,13 @@ class SimAMBasicBlock(nn.Module):
 
     def __init__(self, ConvLayer, NormLayer, in_planes, planes, stride=1, block_id=1):
         super(SimAMBasicBlock, self).__init__()
-        self.conv1 = ConvLayer(in_planes, planes, kernel_size=3, stride=stride, padding=1, bias=False)
+        self.conv1 = ConvLayer(
+            in_planes, planes, kernel_size=3, stride=stride, padding=1, bias=False
+        )
         self.bn1 = NormLayer(planes)
-        self.conv2 = ConvLayer(planes, planes, kernel_size=3, stride=1, padding=1, bias=False)
+        self.conv2 = ConvLayer(
+            planes, planes, kernel_size=3, stride=1, padding=1, bias=False
+        )
         self.bn2 = NormLayer(planes)
         self.relu = nn.ReLU(inplace=True)
         self.sigmoid = nn.Sigmoid()
@@ -76,7 +204,13 @@ class SimAMBasicBlock(nn.Module):
         self.downsample = nn.Sequential()
         if stride != 1 or in_planes != self.expansion * planes:
             self.downsample = nn.Sequential(
-                ConvLayer(in_planes, self.expansion * planes, kernel_size=1, stride=stride, bias=False),
+                ConvLayer(
+                    in_planes,
+                    self.expansion * planes,
+                    kernel_size=1,
+                    stride=stride,
+                    bias=False,
+                ),
                 NormLayer(self.expansion * planes),
             )
 
@@ -101,16 +235,26 @@ class BasicBlock(nn.Module):
 
     def __init__(self, ConvLayer, NormLayer, in_planes, planes, stride=1, block_id=1):
         super(BasicBlock, self).__init__()
-        self.conv1 = ConvLayer(in_planes, planes, kernel_size=3, stride=stride, padding=1, bias=False)
+        self.conv1 = ConvLayer(
+            in_planes, planes, kernel_size=3, stride=stride, padding=1, bias=False
+        )
         self.bn1 = NormLayer(planes)
-        self.conv2 = ConvLayer(planes, planes, kernel_size=3, stride=1, padding=1, bias=False)
+        self.conv2 = ConvLayer(
+            planes, planes, kernel_size=3, stride=1, padding=1, bias=False
+        )
         self.bn2 = NormLayer(planes)
         self.relu = nn.ReLU(inplace=True)
 
         self.downsample = nn.Sequential()
         if stride != 1 or in_planes != self.expansion * planes:
             self.downsample = nn.Sequential(
-                ConvLayer(in_planes, self.expansion * planes, kernel_size=1, stride=stride, bias=False),
+                ConvLayer(
+                    in_planes,
+                    self.expansion * planes,
+                    kernel_size=1,
+                    stride=stride,
+                    bias=False,
+                ),
                 NormLayer(self.expansion * planes),
             )
 
@@ -129,15 +273,25 @@ class Bottleneck(nn.Module):
         super(Bottleneck, self).__init__()
         self.conv1 = nn.Conv2d(in_planes, planes, kernel_size=1, bias=False)
         self.bn1 = nn.BatchNorm2d(planes)
-        self.conv2 = nn.Conv2d(planes, planes, kernel_size=3, stride=stride, padding=1, bias=False)
+        self.conv2 = nn.Conv2d(
+            planes, planes, kernel_size=3, stride=stride, padding=1, bias=False
+        )
         self.bn2 = nn.BatchNorm2d(planes)
-        self.conv3 = nn.Conv2d(planes, self.expansion * planes, kernel_size=1, bias=False)
+        self.conv3 = nn.Conv2d(
+            planes, self.expansion * planes, kernel_size=1, bias=False
+        )
         self.bn3 = nn.BatchNorm2d(self.expansion * planes)
 
         self.shortcut = nn.Sequential()
         if stride != 1 or in_planes != self.expansion * planes:
             self.shortcut = nn.Sequential(
-                nn.Conv2d(in_planes, self.expansion * planes, kernel_size=1, stride=stride, bias=False),
+                nn.Conv2d(
+                    in_planes,
+                    self.expansion * planes,
+                    kernel_size=1,
+                    stride=stride,
+                    bias=False,
+                ),
                 nn.BatchNorm2d(self.expansion * planes),
             )
 
@@ -167,19 +321,38 @@ class ResNet(nn.Module):
 
         self.in_planes = in_planes
 
-        self.conv1 = self.ConvLayer(in_ch, in_planes, kernel_size=3, stride=1, padding=1, bias=False)
+        self.conv1 = self.ConvLayer(
+            in_ch, in_planes, kernel_size=3, stride=1, padding=1, bias=False
+        )
         self.bn1 = self.NormLayer(in_planes)
         self.relu = nn.ReLU(inplace=True)
-        self.layer1 = self._make_layer(block, in_planes, num_blocks[0], stride=1, block_id=1)
-        self.layer2 = self._make_layer(block, in_planes * 2, num_blocks[1], stride=2, block_id=2)
-        self.layer3 = self._make_layer(block, in_planes * 4, num_blocks[2], stride=2, block_id=3)
-        self.layer4 = self._make_layer(block, in_planes * 8, num_blocks[3], stride=2, block_id=4)
+        self.layer1 = self._make_layer(
+            block, in_planes, num_blocks[0], stride=1, block_id=1
+        )
+        self.layer2 = self._make_layer(
+            block, in_planes * 2, num_blocks[1], stride=2, block_id=2
+        )
+        self.layer3 = self._make_layer(
+            block, in_planes * 4, num_blocks[2], stride=2, block_id=3
+        )
+        self.layer4 = self._make_layer(
+            block, in_planes * 8, num_blocks[3], stride=2, block_id=4
+        )
 
     def _make_layer(self, block, planes, num_blocks, stride, block_id=1):
         strides = [stride] + [1] * (num_blocks - 1)
         layers = []
         for stride in strides:
-            layers.append(block(self.ConvLayer, self.NormLayer, self.in_planes, planes, stride, block_id))
+            layers.append(
+                block(
+                    self.ConvLayer,
+                    self.NormLayer,
+                    self.in_planes,
+                    planes,
+                    stride,
+                    block_id,
+                )
+            )
             self.in_planes = planes * block.expansion
         return nn.Sequential(*layers)
 
@@ -252,7 +425,15 @@ class Bottle2neck(nn.Module):
         bns = []
         num_pad = math.floor(kernel_size / 2) * dilation
         for i in range(self.nums):
-            convs.append(nn.Conv1d(width, width, kernel_size=kernel_size, dilation=dilation, padding=num_pad))
+            convs.append(
+                nn.Conv1d(
+                    width,
+                    width,
+                    kernel_size=kernel_size,
+                    dilation=dilation,
+                    padding=num_pad,
+                )
+            )
             bns.append(nn.BatchNorm1d(width))
         self.convs = nn.ModuleList(convs)
         self.bns = nn.ModuleList(bns)
@@ -335,7 +516,9 @@ class ECAPA_TDNN(nn.Module):
             (
                 x,
                 torch.mean(x, dim=2, keepdim=True).repeat(1, 1, t),
-                torch.sqrt(torch.var(x, dim=2, keepdim=True).clamp(min=1e-4)).repeat(1, 1, t),
+                torch.sqrt(torch.var(x, dim=2, keepdim=True).clamp(min=1e-4)).repeat(
+                    1, 1, t
+                ),
             ),
             dim=1,
         )
@@ -354,12 +537,18 @@ class ECAPA_TDNN(nn.Module):
 
 
 class SpeakerEmbedding(nn.Module):
-    def __init__(self, ckpt_path: str = "ResNet293_SimAM_ASP_base.pt", device: str = DEFAULT_DEVICE):
+    def __init__(
+        self,
+        ckpt_path: str = "ResNet293_SimAM_ASP_base.pt",
+        device: str = DEFAULT_DEVICE,
+    ):
         super().__init__()
         self.device = device
         with torch.device(device):
             self.model = ResNet293_based()
-            state_dict = torch.load(ckpt_path, weights_only=True, mmap=True, map_location="cpu")
+            state_dict = torch.load(
+                ckpt_path, weights_only=True, mmap=True, map_location="cpu"
+            )
             self.model.load_state_dict(state_dict)
             self.model.featCal = logFbankCal()
 
@@ -388,11 +577,11 @@ class SpeakerEmbedding(nn.Module):
 class SpeakerEmbeddingLDA(nn.Module):
     def __init__(self, device: str = DEFAULT_DEVICE):
         super().__init__()
-        spk_model_path = hf_hub_download(
+        spk_model_path = _download_with_deployment_move(
             repo_id="Zyphra/Zonos-v0.1-speaker-embedding",
             filename="ResNet293_SimAM_ASP_base.pt",
         )
-        lda_spk_model_path = hf_hub_download(
+        lda_spk_model_path = _download_with_deployment_move(
             repo_id="Zyphra/Zonos-v0.1-speaker-embedding",
             filename="ResNet293_SimAM_ASP_base_LDA-128.pt",
         )
@@ -402,7 +591,9 @@ class SpeakerEmbeddingLDA(nn.Module):
             self.model = SpeakerEmbedding(spk_model_path, device)
             lda_sd = torch.load(lda_spk_model_path, weights_only=True)
             out_features, in_features = lda_sd["weight"].shape
-            self.lda = nn.Linear(in_features, out_features, bias=True, dtype=torch.float32)
+            self.lda = nn.Linear(
+                in_features, out_features, bias=True, dtype=torch.float32
+            )
             self.lda.load_state_dict(lda_sd)
 
         self.requires_grad_(False).eval()
