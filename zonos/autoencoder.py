@@ -66,11 +66,16 @@ def _move_to_deployment(repo_id: str, filename: str, source_path: str) -> Path:
             pass
 
     _cleanup_hf_cache(repo_id, source)
+    # No chown: metadata churn on a Syncthing-synced file is itself a change
+    # event that can spawn sync-conflicts. The atomic os.replace above is the
+    # publish; ownership is left as-is (matches the echogarden model-publish
+    # discipline in VideoFoundry).
+    # A real download just landed in models/tts/zonos — signal the host snapshot
+    # responder (best-effort; never breaks model loading).
     try:
-        base = _deployment_base()
-        base_stat = base.stat()
-        os.chown(dest_dir, base_stat.st_uid, base_stat.st_gid)
-        os.chown(dest_path, base_stat.st_uid, base_stat.st_gid)
+        from .snapshot_request import request_snapshot
+
+        request_snapshot(f"zonos-{repo_id.replace('/', '__')}-{filename}")
     except Exception:
         pass
     return dest_path
