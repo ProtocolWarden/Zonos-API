@@ -21,7 +21,7 @@ class CustomLogger(logging.getLoggerClass()):
     def __init__(
         self,
         name: str,
-        level: str = logging.DEBUG,
+        level: str = logging.NOTSET,
     ):
         super().__init__(name, level)
 
